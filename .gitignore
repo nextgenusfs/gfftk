@@ -1,0 +1,6 @@
+build/
+gfftk.egg-info/
+tests/
+.DS_Store
+gfftk/__pycache__/
+docs/_html/
