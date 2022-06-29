@@ -82,13 +82,13 @@ def consensus_subparser(subparsers):
     required_args.add_argument('-o', '--out', required=True, help='output in GFF3 format', metavar='')
 
     optional_args = group.add_argument_group('Optional arguments')
-    optional_args.add_argument('-p', '--proteins', nargs='+',
+    optional_args.add_argument('-p', '--proteins', nargs='+', default=[],
                         help='protein alignments in GFF3 format [accepts multiple files: space separated]', metavar='')
-    optional_args.add_argument('-t', '--transcripts', nargs='+',
+    optional_args.add_argument('-t', '--transcripts', nargs='+', default=[],
                         help='transcripts alignments in GFF3 format [accepts multiple files: space separated]', metavar='')
-    optional_args.add_argument('-r', '--repeats', nargs='+',
+    optional_args.add_argument('-r', '--repeats', nargs='+', default=[],
                         help='repeat alignments in BED or GFF3 format [accepts multiple files: space separated]', metavar='')
-    optional_args.add_argument('-w', '--weights', nargs='+',
+    optional_args.add_argument('-w', '--weights', nargs='+', default=[],
                         help='user supplied source weights [accepts multiple: space separated source:weight]', metavar='')
     optional_args.add_argument('-m', '--minscore', type=int,
                         help='minimum score to retain gene model (default: auto)', metavar='')
