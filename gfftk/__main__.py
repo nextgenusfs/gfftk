@@ -125,7 +125,7 @@ def convert_subparser(subparsers):
     optional_args = group.add_argument_group('Optional arguments')
     optional_args.add_argument('-o', '--out', help='write converted output to file (default: stdout)', metavar='')
     optional_args.add_argument('--input-format', dest='input_format', help='format of input file [gff3, tbl]. (default: auto)',
-                               choices=['gff3', 'tbl'], metavar='')
+                               choices=['gff3', 'tbl', 'miniprot'], metavar='')
     optional_args.add_argument('--output-format', dest='output_format', help='format of output file [gff3, gtf, tbl, proteins, nucleotides]. (default: auto)',
                                choices=['gff3', 'gtf', 'tbl', 'proteins', 'nucleotides'], metavar='')
     optional_args.add_argument('-n', '--no-stop', dest='strip_stop', action='store_true',
