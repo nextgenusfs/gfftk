@@ -862,7 +862,7 @@ def dict2gff3(input, output=False, debug=False):
                                 CleanedNote.append(base + ":" + y)
                     else:
                         CleanedNote.append(x.replace(",", ""))
-                extraAnnotations = extraAnnotations + "note={:};".format(
+                extraAnnotations = extraAnnotations + "Note={:};".format(
                     ",".join(CleanedNote)
                 )
             # now write mRNA feature
