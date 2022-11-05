@@ -469,7 +469,7 @@ def validate_and_translate_models(
     # loop through and make sure CDS and exons are properly sorted and codon_start is correct, translate to protein space
     # return sorted mRNA, sorted CDS, transcripts, translations, proper phase
     results = {
-        "gene_synonyms": [],
+        "gene_synonym": [],
         "location": v["location"],
         "mRNA": [],
         "CDS": [],
@@ -495,11 +495,13 @@ def validate_and_translate_models(
             results["transcript"].append(mrnaSeq)
         if v["type"][i] in ["mRNA", "transcript"]:
             if not v["CDS"][i]:
-                # logger('ERROR: ID={:} has no CDS features, removing gene model\n'.format(v['ids'][i]))
                 results["CDS"].append([])
                 results["type"].append("ncRNA")
                 results["protein"].append(None)
                 results["cds_transcript"].append(None)
+                results["codon_start"].append(None)
+                results["partialStart"].append(None)
+                results["partialStop"].append(None)
             else:
                 results["type"].append("mRNA")
                 if v["strand"] == "+":
@@ -516,12 +518,6 @@ def validate_and_translate_models(
                 if gap_filter:
                     cdsSeq, v["CDS"][i] = start_end_gap(cdsSeq, v["CDS"][i])
                 protSeq, codon_start = (None,) * 2
-                """
-                try:
-                    currentphase = v['phase'][i]
-                except IndexError:
-                    pass
-                """
                 if (
                     "?" in v["phase"][i]
                 ):  # dont know the phase -- malformed GFF3, try to find best CDS
@@ -706,11 +702,11 @@ def gff2dict(
             "product",
         ]:
             if len(annotation[gene]["ids"]) != len(annotation[gene][z]):
-                assert_lengths_fail.append((z, len(annotation[gene][z])))
+                assert_lengths_fail.append((z, annotation[gene][z], len(annotation[gene][z])))
         if len(assert_lengths_fail) > 0:
             logger(
                 "ERROR in parsing gene {}\n{}\n{}\n".format(
-                    gene, assert_lengths_fail, v
+                    gene, assert_lengths_fail, annotation[gene]
                 )
             )
             sys.exit(1)

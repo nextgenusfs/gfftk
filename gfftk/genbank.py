@@ -442,28 +442,7 @@ def dict2tbl(
                 == len(geneInfo["CDS"])
             ):
                 continue
-            """
-            if 'pseudo' in geneInfo:
-                if geneInfo['pseudo']:
-                    errors.append('{:} is pseudo, skipping'.format(genes))
-                    pseudo += 1
-                    continue
-            if geneInfo['type'] == 'mRNA' and not geneInfo['CDS']:
-                errors.append('Skipping {:} because no CDS found.'.format(genes))
-                pseudo += 1
-                continue
-            if geneInfo['type'] == 'mRNA' and not len(geneInfo['ids']) == len(geneInfo['mRNA']) == len(geneInfo['CDS']):
-                errors.append('Incompatible annotation found: {:} {:}'.format(genes, geneInfo))
-                duplicates += 1
-                continue
-            if geneInfo['type'] == 'mRNA' and len(geneInfo['CDS']) == 0:
-                errors.append('Is mRNA but no CDS found: {} {}'.format(genes, geneInfo))
-                nocds += 1
-                continue
-            if geneInfo['type'] is None:
-                errors.append('type is None: {} {}'.format(genes, geneInfo))
-                continue
-            """
+            print(genes, geneInfo['note'])
             # check for partial models
             if True in geneInfo["partialStart"]:
                 ps = "<"

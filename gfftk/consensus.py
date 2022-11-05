@@ -21,6 +21,7 @@ def consensus(args):
     else:
         log = logger.info
     system_info(log)
+    logger.info(args)
     check_inputs(
         [args.fasta] + args.genes + args.proteins + args.transcripts + args.repeats
     )
@@ -240,7 +241,7 @@ def cluster_interlap(obj):
             for x in hits:
                 seen.add(x[2])
             # sub cluster for unique sources
-            cleaned = sub_cluster(hits)
+            cleaned = [hits] #sub_cluster(hits)
             for r in cleaned:
                 starts = [x[0] for x in r]
                 ends = [x[1] for x in r]
@@ -664,6 +665,13 @@ def best_model(
     max_exon=-1,
 ):
     results = {}
+    # check if could be multiple
+    sources = [x[1] for x in locus["genes"]]
+    s, n = Counter(sources).most_common(1)[0]
+    if n > 1:  # could be multiple genes here
+        print('---------------')
+        print(s, n)
+        print('Multiple sources one locus: {}'.format(locus["genes"]))
     # get evidence scores
     evidence_scores = score_by_evidence(locus)
     # get aed scores
@@ -702,12 +710,12 @@ def best_model(
             ),
         }
     best_result = sorted(results.items(), key=lambda e: e[1]["score"], reverse=True)
-
     # if debug than write GFF3 to file
     if debug:
         debug_gff_writer(debug, contig, strand, best_result)
     best_result_filtered = [x for x in best_result if x[1]["check"] == True]
-
+    if n > 1:
+        print(best_result_filtered)
     # check if we need to break any ties
     if len(best_result_filtered) > 0:
         best_score = best_result_filtered[0][1]["score"]
@@ -716,12 +724,12 @@ def best_model(
             breaktie = sorted(
                 anyties, key=lambda x: order[x[1]["source"]], reverse=True
             )
-            best_model = random.choice(breaktie)
+            bm = random.choice(breaktie)
         else:
-            best_model = anyties[0]
+            bm = anyties[0]
     else:
-        best_model = []
-    return best_model
+        bm = []
+    return bm
 
 
 def cluster_by_aed(locus, score=0.005):
