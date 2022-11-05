@@ -82,13 +82,13 @@ def consensus_subparser(subparsers):
     required_args.add_argument('-o', '--out', required=True, help='output in GFF3 format', metavar='')
 
     optional_args = group.add_argument_group('Optional arguments')
-    optional_args.add_argument('-p', '--proteins', nargs='+',
+    optional_args.add_argument('-p', '--proteins', nargs='+', default=[],
                         help='protein alignments in GFF3 format [accepts multiple files: space separated]', metavar='')
-    optional_args.add_argument('-t', '--transcripts', nargs='+',
+    optional_args.add_argument('-t', '--transcripts', nargs='+', default=[],
                         help='transcripts alignments in GFF3 format [accepts multiple files: space separated]', metavar='')
-    optional_args.add_argument('-r', '--repeats', nargs='+',
+    optional_args.add_argument('-r', '--repeats', nargs='+', default=[],
                         help='repeat alignments in BED or GFF3 format [accepts multiple files: space separated]', metavar='')
-    optional_args.add_argument('-w', '--weights', nargs='+',
+    optional_args.add_argument('-w', '--weights', nargs='+', default=[],
                         help='user supplied source weights [accepts multiple: space separated source:weight]', metavar='')
     optional_args.add_argument('-m', '--minscore', type=int,
                         help='minimum score to retain gene model (default: auto)', metavar='')
@@ -125,7 +125,7 @@ def convert_subparser(subparsers):
     optional_args = group.add_argument_group('Optional arguments')
     optional_args.add_argument('-o', '--out', help='write converted output to file (default: stdout)', metavar='')
     optional_args.add_argument('--input-format', dest='input_format', help='format of input file [gff3, tbl]. (default: auto)',
-                               choices=['gff3', 'tbl'], metavar='')
+                               choices=['gff3', 'tbl', 'miniprot'], metavar='')
     optional_args.add_argument('--output-format', dest='output_format', help='format of output file [gff3, gtf, tbl, proteins, nucleotides]. (default: auto)',
                                choices=['gff3', 'gtf', 'tbl', 'proteins', 'nucleotides'], metavar='')
     optional_args.add_argument('-n', '--no-stop', dest='strip_stop', action='store_true',

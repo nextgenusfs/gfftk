@@ -70,6 +70,8 @@ def convert(args):
                     "Error: if output format is nucleotides, then -o,--out is required as basename for output files"
                 )
                 sys.exit(1)
+    elif args.input_format == 'miniprot':  # this is an alt GFF3 format
+        pass
 
 
 def _dict2proteins(input, output=False, strip_stop=False):
@@ -325,3 +327,5 @@ def gff2tbl(gff, fasta, output=False, table=1, debug=False):
         annotations=True,
         external=True,
     )
+
+#def miniprot2gff3
