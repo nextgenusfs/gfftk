@@ -67,6 +67,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                 currentNum = 0
                 for x in item:
                     exonF, exonR, cdsF, cdsR, cols = (None,) * 5
+                    print(x)
                     if x.endswith("\tgene\n") and not position:
                         cols = x.strip().split("\t")
                         position = "gene"
