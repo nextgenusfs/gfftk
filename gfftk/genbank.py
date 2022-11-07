@@ -442,7 +442,7 @@ def dict2tbl(
                 == len(geneInfo["CDS"])
             ):
                 continue
-            print(genes, geneInfo['note'])
+            #print(genes, geneInfo['note'])
             # check for partial models
             if True in geneInfo["partialStart"]:
                 ps = "<"
