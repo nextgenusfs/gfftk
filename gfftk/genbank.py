@@ -67,7 +67,6 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                 currentNum = 0
                 for x in item:
                     exonF, exonR, cdsF, cdsR, cols = (None,) * 5
-                    print(x)
                     if x.endswith("\tgene\n") and not position:
                         cols = x.strip().split("\t")
                         position = "gene"
@@ -116,6 +115,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                         cols = x.strip().split("\t")
                         exonF = int(cols[0].replace("<", ""))
                         exonR = int(cols[1].replace(">", ""))
+                        print(strand, exonF, exonR, cols)
                         if strand == "+":
                             mRNA[currentNum].append((exonF, exonR))
                         else:
