@@ -49,7 +49,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                         tNum += 1
                 if tNum > 0:
                     tNum = int(tNum / 2)
-                else:
+                if tNum == 0:
                     tNum = 1
                 # setup lists for transcripts
                 mRNA = [[] for y in range(tNum)]
