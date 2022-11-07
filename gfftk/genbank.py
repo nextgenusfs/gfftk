@@ -270,7 +270,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
         # @nextgenusfs we should clarify or rename this variable to indicate
         # i is the i-th transcript, right??
         for i in range(0, len(v["ids"])):
-            print(v['type'], i)
+            print(k, v['ids'], v['type'], i)
             if v["type"][i] in ["mRNA", "tRNA", "ncRNA", "rRNA"]:
                 if v["strand"] == "+":
                     sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0])
