@@ -211,7 +211,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                     if type in ["tRNA", "ncRNA", "rRNA"]:
                         annotation[geneID] = {
                             "name": Name,
-                            "type": [type],
+                            "type": [type,]*tNum,
                             "transcript": [],
                             "cds_transcript": [],
                             "protein": [],
@@ -239,7 +239,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                     else:
                         annotation[geneID] = {
                             "name": Name,
-                            "type": [type],
+                            "type": [type,]*tNum,
                             "transcript": [],
                             "cds_transcript": [],
                             "protein": [],
