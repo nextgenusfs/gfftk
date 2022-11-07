@@ -84,14 +84,12 @@ def _gff_default_parser(gff, fasta, Genes):
             ID, Parent, Name, Product, GeneFeature, gbkey = (None,) * 6
             info = {}
             for field in attributes.split(";"):
-                print(field)
                 try:
                     k, v = field.split("=", 1)
                     info[k] = v.strip()
                 except (IndexError, ValueError) as E:
                     pass
             # now can lookup in info dict for values
-            print(info.keys())
             ID = info.get("ID", None)
             Parent = info.get("Parent", None)
             Name = info.get("Name", None)
@@ -133,7 +131,6 @@ def _gff_default_parser(gff, fasta, Genes):
                     Note = [Note]
             else:
                 Note = []
-            print(Note)
             Product = info.get("Product", None)
             if not Product and "product" in info:
                 Product = info.get("product")
