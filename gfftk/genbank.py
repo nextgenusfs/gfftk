@@ -115,7 +115,6 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                         cols = x.strip().split("\t")
                         exonF = int(cols[0].replace("<", ""))
                         exonR = int(cols[1].replace(">", ""))
-                        print(currentNum, mRNA, tNum, strand, exonF, exonR, cols)
                         if strand == "+":
                             mRNA[currentNum].append((exonF, exonR))
                         else:
@@ -270,6 +269,8 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
     for k, v in list(annotation.items()):
         # @nextgenusfs we should clarify or rename this variable to indicate
         # i is the i-th transcript, right??
+        if len(v['ids']) < 1:
+            print(k, v)
         for i in range(0, len(v["ids"])):
             if v["type"][i] in ["mRNA", "tRNA", "ncRNA", "rRNA"]:
                 if v["strand"] == "+":
