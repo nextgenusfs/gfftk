@@ -85,7 +85,7 @@ def _gff_default_parser(gff, fasta, Genes):
             info = {}
             for field in attributes.split(";"):
                 try:
-                    k, v = field.split("=")
+                    k, v = field.split("=", 1)
                     info[k] = v.strip()
                 except (IndexError, ValueError) as E:
                     pass

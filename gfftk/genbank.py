@@ -49,7 +49,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                         tNum += 1
                 if tNum > 0:
                     tNum = int(tNum / 2)
-                else:
+                if tNum == 0:
                     tNum = 1
                 # setup lists for transcripts
                 mRNA = [[] for y in range(tNum)]
@@ -211,7 +211,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                     if type in ["tRNA", "ncRNA", "rRNA"]:
                         annotation[geneID] = {
                             "name": Name,
-                            "type": [type],
+                            "type": [type,]*tNum,
                             "transcript": [],
                             "cds_transcript": [],
                             "protein": [],
@@ -239,7 +239,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                     else:
                         annotation[geneID] = {
                             "name": Name,
-                            "type": [type],
+                            "type": [type,]*tNum,
                             "transcript": [],
                             "cds_transcript": [],
                             "protein": [],
@@ -270,7 +270,11 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
         # @nextgenusfs we should clarify or rename this variable to indicate
         # i is the i-th transcript, right??
         for i in range(0, len(v["ids"])):
-            if v["type"][i] in ["mRNA", "tRNA", "ncRNA", "rRNA"]:
+            try:
+                featuretype = v["type"][i]
+            except IndexError:
+                featuretype =  v["type"][0]
+            if featuretype in ["mRNA", "tRNA", "ncRNA", "rRNA"]:
                 if v["strand"] == "+":
                     sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0])
                 else:
@@ -280,7 +284,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                 annotation[k]["mRNA"][i] = sortedExons
                 mrnaSeq = getSeqRegions(SeqRecords, v["contig"], sortedExons)
                 annotation[k]["transcript"].append(mrnaSeq)
-            if v["type"][i] == "mRNA":
+            if featuretype == "mRNA":
                 if v["strand"] == "+":
                     sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0])
                 else:
