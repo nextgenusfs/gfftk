@@ -113,8 +113,8 @@ def consensus_subparser(subparsers):
 
 def convert_subparser(subparsers):
     group = subparsers.add_parser('convert',
-                                  description='convert GFF3/tbl format into another format [output gff3, gtf, tbl, protein fasta]. ',
-                                  help='convert GFF3/tbl format into another format [output gff3, gtf, tbl, protein fasta].',
+                                  description='convert GFF3/tbl format into another format [output gff3, gtf, tbl, fasta]. ',
+                                  help='convert GFF3/tbl format into another format [output gff3, gtf, tbl, fasta].',
                                   formatter_class=MyHelpFormatter,
                                   add_help=False)
 
@@ -125,9 +125,9 @@ def convert_subparser(subparsers):
     optional_args = group.add_argument_group('Optional arguments')
     optional_args.add_argument('-o', '--out', help='write converted output to file (default: stdout)', metavar='')
     optional_args.add_argument('--input-format', dest='input_format', help='format of input file [gff3, tbl]. (default: auto)',
-                               choices=['gff3', 'tbl', 'miniprot'], metavar='')
-    optional_args.add_argument('--output-format', dest='output_format', help='format of output file [gff3, gtf, tbl, proteins, nucleotides]. (default: auto)',
-                               choices=['gff3', 'gtf', 'tbl', 'proteins', 'nucleotides'], metavar='')
+                               choices=['gff3', 'tbl'], metavar='')
+    optional_args.add_argument('--output-format', dest='output_format', help='format of output file [gff3, gtf, tbl, proteins, transcripts, cds-transcripts]. (default: auto)',
+                               choices=['gff3', 'gtf', 'tbl', 'proteins', 'transcripts', 'cds-transcripts'], metavar='')
     optional_args.add_argument('-n', '--no-stop', dest='strip_stop', action='store_true',
                         help='for proteins output, do not write stop codons (*)')
     optional_args.add_argument('--debug', action='store_true',
