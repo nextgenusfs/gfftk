@@ -211,7 +211,10 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                     if type in ["tRNA", "ncRNA", "rRNA"]:
                         annotation[geneID] = {
                             "name": Name,
-                            "type": [type,]*tNum,
+                            "type": [
+                                type,
+                            ]
+                            * tNum,
                             "transcript": [],
                             "cds_transcript": [],
                             "protein": [],
@@ -239,7 +242,10 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                     else:
                         annotation[geneID] = {
                             "name": Name,
-                            "type": [type,]*tNum,
+                            "type": [
+                                type,
+                            ]
+                            * tNum,
                             "transcript": [],
                             "cds_transcript": [],
                             "protein": [],
@@ -273,7 +279,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
             try:
                 featuretype = v["type"][i]
             except IndexError:
-                featuretype =  v["type"][0]
+                featuretype = v["type"][0]
             if featuretype in ["mRNA", "tRNA", "ncRNA", "rRNA"]:
                 if v["strand"] == "+":
                     sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0])
@@ -446,7 +452,7 @@ def dict2tbl(
                 == len(geneInfo["CDS"])
             ):
                 continue
-            #print(genes, geneInfo['note'])
+            # print(genes, geneInfo['note'])
             # check for partial models
             if True in geneInfo["partialStart"]:
                 ps = "<"

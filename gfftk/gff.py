@@ -81,7 +81,12 @@ def _gff_default_parser(gff, fasta, Genes):
             feature = unquote(feature)
             start = int(start)
             end = int(end)
-            ID, Parent, Name, Product, GeneFeature, gbkey = (None,) * 6
+            ID = None
+            Parent = None
+            Name = None
+            Product = None
+            GeneFeature = None
+            gbkey = None
             info = {}
             for field in attributes.split(";"):
                 try:
@@ -93,11 +98,14 @@ def _gff_default_parser(gff, fasta, Genes):
             ID = info.get("ID", None)
             Parent = info.get("Parent", None)
             Name = info.get("Name", None)
-            DBxref = info.get("DBxref", None)
-            if not DBxref and "Dbxref" in info:
-                DBxref = info.get("Dbxref")
-            if not DBxref and "dbxref" in info:
-                DBxref = info.get("dbxref")
+            if "DBxref" in info:
+                DBxref = info.get("DBxref", None)
+            elif "Dbxref" in info:
+                DBxref = info.get("Dbxref", None)
+            elif "dbxref" in info:
+                DBxref = info.get("dbxref", None)
+            else:
+                DBxref = None
             if DBxref:
                 if "," in DBxref:
                     DBxref = DBxref.split(",")
@@ -370,6 +378,10 @@ def _gff_default_parser(gff, fasta, Genes):
                                 # determine which transcript this is get index from id
                                 i = Genes[GeneFeature]["ids"].index(p)
                                 Genes[GeneFeature]["CDS"][i].append((start, end))
+                                if DBxref:
+                                    for dbx in DBxref:
+                                        if not dbx in Genes[GeneFeature]["db_xref"][i]:
+                                            Genes[GeneFeature]["db_xref"][i].append(dbx)
                                 # add phase
                                 try:
                                     Genes[GeneFeature]["phase"][i].append(int(phase))
@@ -535,13 +547,13 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                     pass
             # now can lookup in info dict for values
             ID = info.get("ID", None)
-            if ID and ID.startswith(('gene-', 'exon-', 'rna-', 'cds-')):
-                ID = ID.split('-', 1)[1]
-            Parent = info.get('Parent', None)
-            if Parent and Parent.startswith(('gene-', 'rna-')):
-                Parent = Parent.split('-', 1)[1]
-            Name = info.get('gene', None)
-            if 'DBxref' in info:
+            if ID and ID.startswith(("gene-", "exon-", "rna-", "cds-")):
+                ID = ID.split("-", 1)[1]
+            Parent = info.get("Parent", None)
+            if Parent and Parent.startswith(("gene-", "rna-")):
+                Parent = Parent.split("-", 1)[1]
+            Name = info.get("gene", None)
+            if "DBxref" in info:
                 DBxref = info.get("DBxref", None)
             elif "Dbxref" in info:
                 DBxref = info.get("Dbxref", None)
@@ -1054,13 +1066,13 @@ def validate_and_translate_models(
 def _detect_format(gff):
     # this is incomplete search, but sniff if this is an NCBI GFF3 record
     parser = _gff_default_parser
-    _format = 'default'
+    _format = "default"
     with zopen(gff) as infile:
         for line in infile:
-            if line.startswith('#'):
-                if '!processor NCBI annotwriter' in line:
+            if line.startswith("#"):
+                if "!processor NCBI annotwriter" in line:
                     parser = _gff_ncbi_parser
-                    _format = 'ncbi'
+                    _format = "ncbi"
             else:
                 break
     return parser, _format
@@ -1070,9 +1082,9 @@ def _clean_ncbi_names(annot):
     Clean = {}
     for k, v in annot.items():
         new_ids = []
-        for i, x in enumerate(v['ids']):
-            new_ids.append('{}-T{}'.format(k, i+1))
-        v['ids'] = new_ids
+        for i, x in enumerate(v["ids"]):
+            new_ids.append("{}-T{}".format(k, i + 1))
+        v["ids"] = new_ids
         Clean[k] = v
     return Clean
 
@@ -1120,7 +1132,7 @@ def gff2dict(
     # autodetect format
     gff_parser, _format = _detect_format(gff)
     annotation, parse_errors = gff_parser(gff, fasta, annotation)
-    if _format == 'ncbi':  # clean up identifer names
+    if _format == "ncbi":  # clean up identifer names
         annotation = _clean_ncbi_names(annotation)
     if debug:
         for err, err_v in parse_errors.items():
@@ -1187,7 +1199,9 @@ def gff2dict(
             "product",
         ]:
             if len(annotation[gene]["ids"]) != len(annotation[gene][z]):
-                assert_lengths_fail.append((z, annotation[gene][z], len(annotation[gene][z])))
+                assert_lengths_fail.append(
+                    (z, annotation[gene][z], len(annotation[gene][z]))
+                )
         if len(assert_lengths_fail) > 0:
             logger(
                 "ERROR in parsing gene {}\n{}\n{}\n".format(
@@ -1292,7 +1306,7 @@ def dict2gff3(input, output=False, debug=False):
             # make sure coordinates are sorted
             if v["strand"] == "+":
                 sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0])
-                if v['type'][i] == 'mRNA':
+                if v["type"][i] == "mRNA":
                     sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0])
                 if "5UTR" in v and v["5UTR"][i]:
                     sortedFive = sorted(v["5UTR"][i], key=lambda tup: tup[0])
@@ -1300,8 +1314,10 @@ def dict2gff3(input, output=False, debug=False):
                     sortedThree = sorted(v["3UTR"][i], key=lambda tup: tup[0])
             else:
                 sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0], reverse=True)
-                if v['type'][i] == 'mRNA':
-                    sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0], reverse=True)
+                if v["type"][i] == "mRNA":
+                    sortedCDS = sorted(
+                        v["CDS"][i], key=lambda tup: tup[0], reverse=True
+                    )
                 if "5UTR" in v and v["5UTR"][i]:
                     sortedFive = sorted(
                         v["5UTR"][i], key=lambda tup: tup[0], reverse=True
