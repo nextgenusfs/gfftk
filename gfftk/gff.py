@@ -807,14 +807,16 @@ def dict2gff3(input, output=False, debug=False):
             # make sure coordinates are sorted
             if v["strand"] == "+":
                 sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0])
-                sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0])
+                if v['type'][i] == 'mRNA':
+                    sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0])
                 if "5UTR" in v and v["5UTR"][i]:
                     sortedFive = sorted(v["5UTR"][i], key=lambda tup: tup[0])
                 if "3UTR" in v and v["3UTR"][i]:
                     sortedThree = sorted(v["3UTR"][i], key=lambda tup: tup[0])
             else:
                 sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0], reverse=True)
-                sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0], reverse=True)
+                if v['type'][i] == 'mRNA':
+                    sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0], reverse=True)
                 if "5UTR" in v and v["5UTR"][i]:
                     sortedFive = sorted(
                         v["5UTR"][i], key=lambda tup: tup[0], reverse=True
