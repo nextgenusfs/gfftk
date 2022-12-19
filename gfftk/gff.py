@@ -462,6 +462,461 @@ def _gff_default_parser(gff, fasta, Genes):
     return Genes, errors
 
 
+def _gff_ncbi_parser(gff, fasta, Genes):
+    # this is the default general parser to populate the dictionary
+    # idea is to go through line by line and parse the records and add to Genes dictionary
+    errors = {
+        "contig_name": [],
+        "columns": [],
+        "comments": [],
+        "unparsed_attributes": [],
+        "no_parent": [],
+        "no_id": [],
+    }
+    idParent = {}
+    SeqRecords = fasta2headers(fasta)
+    with zopen(gff) as input:
+        for line in input:
+            if line.startswith("\n") or line.startswith("#"):
+                errors["comments"].append(line)
+                continue
+            line = line.rstrip()
+            # skip lines that aren't 9 columns
+            if not line.count("\t") == 8:
+                errors["columns"].append(line)
+                continue
+            (
+                contig,
+                source,
+                feature,
+                start,
+                end,
+                score,
+                strand,
+                phase,
+                attributes,
+            ) = line.split("\t")
+            if feature not in [
+                "gene",
+                "mRNA",
+                "transcript",
+                "exon",
+                "CDS",
+                "tRNA",
+                "ncRNA",
+                "rRNA",
+                "pseudogene",
+                "five_prime_UTR",
+                "five_prime_utr",
+                "three_prime_UTR",
+                "three_prime_utr",
+            ]:
+                continue
+            if not contig in SeqRecords:
+                errors["contig_name"].append(line)
+                continue
+            attributes = unquote(attributes)
+            source = unquote(source)
+            feature = unquote(feature)
+            start = int(start)
+            end = int(end)
+            ID = None
+            Parent = None
+            Name = None
+            Product = None
+            GeneFeature = None
+            gbkey = None
+            info = {}
+            for field in attributes.split(";"):
+                try:
+                    k, v = field.split("=", 1)
+                    info[k] = v.strip()
+                except (IndexError, ValueError) as E:
+                    pass
+            # now can lookup in info dict for values
+            ID = info.get("ID", None)
+            if ID and ID.startswith(('gene-', 'exon-', 'rna-', 'cds-')):
+                ID = ID.split('-', 1)[1]
+            Parent = info.get('Parent', None)
+            if Parent and Parent.startswith(('gene-', 'rna-')):
+                Parent = Parent.split('-', 1)[1]
+            Name = info.get('gene', None)
+            if 'DBxref' in info:
+                DBxref = info.get("DBxref", None)
+            elif "Dbxref" in info:
+                DBxref = info.get("Dbxref", None)
+            elif "dbxref" in info:
+                DBxref = info.get("dbxref", None)
+            else:
+                DBxref = None
+            if DBxref:
+                if "," in DBxref:
+                    DBxref = DBxref.split(",")
+                else:
+                    DBxref = [DBxref]
+            else:
+                DBxref = []
+            GO = info.get("Ontology_term", None)
+            if GO:
+                if "," in GO:
+                    GO = GO.split(",")
+                else:
+                    GO = [GO]
+            else:
+                GO = []
+            ECnum = info.get("EC_number", None)
+            if ECnum:
+                if "," in ECnum:
+                    ECnum = ECnum.split(",")
+                else:
+                    ECnum = [ECnum]
+            else:
+                ECnum = []
+            Note = info.get("Note", None)
+            if not Note and "note" in info:
+                Note = info.get("note")
+            if Note:
+                if "," in Note:
+                    Note = Note.split(",")
+                else:
+                    Note = [Note]
+            else:
+                Note = []
+            Product = info.get("Product", None)
+            if not Product and "product" in info:
+                Product = info.get("product")
+            if not Product and "description" in info:
+                Product = info.get("description")
+            synonyms = info.get("Alias", None)
+            if not synonyms and "gene_synonym" in info:
+                synonyms = info.get("gene_synonym")
+            if synonyms:
+                if "," in synonyms:
+                    synonyms = synonyms.split(",")
+                else:
+                    synonyms = [synonyms]
+            else:
+                synonyms = []
+            gbkey = info.get("gbkey", None)
+            # for error reporting capture unparsed keys
+            for attr, value in info.items():
+                if not attr in [
+                    "ID",
+                    "Parent",
+                    "Name",
+                    "DBxref",
+                    "Dbxref",
+                    "dbxref",
+                    "Ontology_term",
+                    "EC_number",
+                    "Note",
+                    "note",
+                    "Product",
+                    "product",
+                    "description",
+                    "Alias",
+                    "gbkey",
+                    "gene_synonym",
+                ]:
+                    if not attr in errors["unparsed_attributes"]:
+                        errors["unparsed_attributes"].append(attr)
+            # now we can do add to dictionary these parsed values
+            # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
+            if feature in ["gene", "pseudogene"]:
+                if not ID in Genes:
+                    if feature == "pseudogene":
+                        pseudoFlag = True
+                    else:
+                        pseudoFlag = False
+                    Genes[ID] = {
+                        "name": Name,
+                        "type": [],
+                        "transcript": [],
+                        "cds_transcript": [],
+                        "protein": [],
+                        "5UTR": [],
+                        "3UTR": [],
+                        "gene_synonym": synonyms,
+                        "codon_start": [],
+                        "ids": [],
+                        "CDS": [],
+                        "mRNA": [],
+                        "strand": strand,
+                        "EC_number": [],
+                        "location": (start, end),
+                        "contig": contig,
+                        "product": [],
+                        "source": source,
+                        "phase": [],
+                        "db_xref": [],
+                        "go_terms": [],
+                        "note": [],
+                        "partialStart": [],
+                        "partialStop": [],
+                        "pseudo": pseudoFlag,
+                    }
+                else:
+                    if start < Genes[ID]["location"][0]:
+                        Genes[ID]["location"] = (start, Genes[ID]["location"][1])
+                    if end > Genes[ID]["location"][1]:
+                        Genes[ID]["location"] = (Genes[ID]["location"][0], end)
+            else:
+                if not ID:
+                    if Name:
+                        ID = Name
+                    # one of the dumbest things I've seen in ensembl they have only Parent=
+                    elif feature in ["three_prime_UTR", "five_prime_UTR"]:
+                        ID = str(uuid.uuid4())
+                    else:
+                        errors["no_id"].append(line)
+                        continue
+                if not Parent:
+                    errors["no_parent"].append(line)
+                    continue
+                if feature in ["mRNA", "transcript", "tRNA", "ncRNA", "rRNA"]:
+                    if gbkey and gbkey == "misc_RNA":
+                        feature = "ncRNA"
+                    if not Product:
+                        if feature in ["mRNA", "transcript"]:
+                            Product = "hypothetical protein"
+                    if not Parent in Genes:
+                        Genes[Parent] = {
+                            "name": Name,
+                            "type": [feature],
+                            "transcript": [],
+                            "cds_transcript": [],
+                            "protein": [],
+                            "5UTR": [[]],
+                            "3UTR": [[]],
+                            "codon_start": [[]],
+                            "ids": [ID],
+                            "CDS": [[]],
+                            "mRNA": [[]],
+                            "strand": strand,
+                            "location": (start, end),
+                            "contig": contig,
+                            "product": [Product],
+                            "source": source,
+                            "phase": [[]],
+                            "gene_synonym": synonyms,
+                            "db_xref": [DBxref],
+                            "go_terms": [GO],
+                            "EC_number": [ECnum],
+                            "note": [Note],
+                            "partialStart": [False],
+                            "partialStop": [False],
+                            "pseudo": False,
+                        }
+                    else:
+                        Genes[Parent]["ids"].append(ID)
+                        Genes[Parent]["mRNA"].append([])
+                        Genes[Parent]["CDS"].append([])
+                        Genes[Parent]["phase"].append([])
+                        Genes[Parent]["5UTR"].append([])
+                        Genes[Parent]["3UTR"].append([])
+                        Genes[Parent]["codon_start"].append([])
+                        Genes[Parent]["partialStart"].append(False)
+                        Genes[Parent]["partialStop"].append(False)
+                        Genes[Parent]["product"].append(Product)
+                        Genes[Parent]["db_xref"].append(DBxref)
+                        Genes[Parent]["EC_number"].append(ECnum)
+                        Genes[Parent]["gene_synonym"] += synonyms
+                        Genes[Parent]["go_terms"].append(GO)
+                        Genes[Parent]["note"].append(Note)
+                        Genes[Parent]["type"].append(feature)
+                        # double check mRNA features are contained in gene coordinates
+                        if start < Genes[Parent]["location"][0]:
+                            Genes[Parent]["location"] = (
+                                start,
+                                Genes[Parent]["location"][1],
+                            )
+                        if end > Genes[Parent]["location"][1]:
+                            Genes[Parent]["location"] = (
+                                Genes[Parent]["location"][0],
+                                end,
+                            )
+                    if not ID in idParent:
+                        idParent[ID] = Parent
+                # treat exon features
+                elif feature == "exon":
+                    if "," in Parent:
+                        parents = Parent.split(",")
+                    else:
+                        parents = [Parent]
+                    for p in parents:
+                        if p in idParent:
+                            GeneFeature = idParent.get(p)
+                        if GeneFeature:
+                            if not GeneFeature in Genes:
+                                Genes[GeneFeature] = {
+                                    "name": Name,
+                                    "type": [],
+                                    "transcript": [],
+                                    "cds_transcript": [],
+                                    "protein": [],
+                                    "5UTR": [[]],
+                                    "3UTR": [[]],
+                                    "codon_start": [[]],
+                                    "ids": [p],
+                                    "CDS": [],
+                                    "mRNA": [[(start, end)]],
+                                    "strand": strand,
+                                    "location": None,
+                                    "contig": contig,
+                                    "product": [],
+                                    "source": source,
+                                    "phase": [[]],
+                                    "db_xref": [],
+                                    "go_terms": [],
+                                    "EC_number": [],
+                                    "note": [],
+                                    "partialStart": [False],
+                                    "partialStop": [False],
+                                    "pseudo": False,
+                                    "gene_synonym": synonyms,
+                                }
+                            else:
+                                # determine which transcript this is get index from id
+                                i = Genes[GeneFeature]["ids"].index(p)
+                                Genes[GeneFeature]["mRNA"][i].append((start, end))
+                # treat codings sequence features
+                elif feature == "CDS":
+                    if "," in Parent:
+                        parents = Parent.split(",")
+                    else:
+                        parents = [Parent]
+                    for p in parents:
+                        if p in idParent:
+                            GeneFeature = idParent.get(p)
+                        if GeneFeature:
+                            if not GeneFeature in Genes:
+                                Genes[GeneFeature] = {
+                                    "name": Name,
+                                    "type": [],
+                                    "transcript": [],
+                                    "cds_transcript": [],
+                                    "protein": [],
+                                    "5UTR": [[]],
+                                    "3UTR": [[]],
+                                    "codon_start": [[]],
+                                    "ids": [p],
+                                    "CDS": [[(start, end)]],
+                                    "mRNA": [],
+                                    "strand": strand,
+                                    "location": None,
+                                    "contig": contig,
+                                    "product": [],
+                                    "source": source,
+                                    "phase": [[]],
+                                    "db_xref": [DBxref],
+                                    "go_terms": [],
+                                    "EC_number": [],
+                                    "note": [],
+                                    "partialStart": [False],
+                                    "partialStop": [False],
+                                    "pseudo": False,
+                                    "gene_synonym": synonyms,
+                                }
+                            else:
+                                # determine which transcript this is get index from id
+                                i = Genes[GeneFeature]["ids"].index(p)
+                                Genes[GeneFeature]["CDS"][i].append((start, end))
+                                if DBxref:
+                                    for dbx in DBxref:
+                                        if not dbx in Genes[GeneFeature]["db_xref"][i]:
+                                            Genes[GeneFeature]["db_xref"][i].append(dbx)
+                                # add phase
+                                try:
+                                    Genes[GeneFeature]["phase"][i].append(int(phase))
+                                except ValueError:
+                                    Genes[GeneFeature]["phase"][i].append("?")
+                # treat 5' UTRs
+                elif feature == "five_prime_UTR" or feature == "five_prime_utr":
+                    if "," in Parent:
+                        parents = Parent.split(",")
+                    else:
+                        parents = [Parent]
+                    for p in parents:
+                        if p in idParent:
+                            GeneFeature = idParent.get(p)
+                        if GeneFeature:
+                            if not GeneFeature in Genes:
+                                Genes[GeneFeature] = {
+                                    "name": Name,
+                                    "type": [],
+                                    "transcript": [],
+                                    "cds_transcript": [],
+                                    "protein": [],
+                                    "5UTR": [[(start, end)]],
+                                    "3UTR": [[]],
+                                    "codon_start": [[]],
+                                    "ids": [p],
+                                    "CDS": [],
+                                    "mRNA": [[(start, end)]],
+                                    "strand": strand,
+                                    "location": None,
+                                    "contig": contig,
+                                    "product": [],
+                                    "source": source,
+                                    "phase": [[]],
+                                    "db_xref": [],
+                                    "go_terms": [],
+                                    "EC_number": [],
+                                    "note": [],
+                                    "partialStart": [False],
+                                    "partialStop": [False],
+                                    "pseudo": False,
+                                    "gene_synonym": synonyms,
+                                }
+                            else:
+                                # determine which transcript this is get index from id
+                                i = Genes[GeneFeature]["ids"].index(p)
+                                Genes[GeneFeature]["5UTR"][i].append((start, end))
+                # treat 3' UTR
+                elif feature == "three_prime_UTR" or feature == "three_prime_utr":
+                    if "," in Parent:
+                        parents = Parent.split(",")
+                    else:
+                        parents = [Parent]
+                    for p in parents:
+                        if p in idParent:
+                            GeneFeature = idParent.get(p)
+                        if GeneFeature:
+                            if not GeneFeature in Genes:
+                                Genes[GeneFeature] = {
+                                    "name": Name,
+                                    "type": [],
+                                    "transcript": [],
+                                    "cds_transcript": [],
+                                    "protein": [],
+                                    "5UTR": [[]],
+                                    "3UTR": [[(start, end)]],
+                                    "codon_start": [[]],
+                                    "ids": [p],
+                                    "CDS": [],
+                                    "mRNA": [[(start, end)]],
+                                    "strand": strand,
+                                    "location": None,
+                                    "contig": contig,
+                                    "product": [],
+                                    "source": source,
+                                    "phase": [[]],
+                                    "db_xref": [],
+                                    "go_terms": [],
+                                    "EC_number": [],
+                                    "note": [],
+                                    "partialStart": [False],
+                                    "partialStop": [False],
+                                    "pseudo": False,
+                                    "gene_synonym": synonyms,
+                                }
+                            else:
+                                # determine which transcript this is get index from id
+                                i = Genes[GeneFeature]["ids"].index(p)
+                                Genes[GeneFeature]["3UTR"][i].append((start, end))
+    return Genes, errors
+
+
 def validate_and_translate_models(
     k, v, SeqRecords, gap_filter=False, table=1, logger=sys.stderr.write
 ):
@@ -596,6 +1051,32 @@ def validate_and_translate_models(
     return (k, results)
 
 
+def _detect_format(gff):
+    # this is incomplete search, but sniff if this is an NCBI GFF3 record
+    parser = _gff_default_parser
+    _format = 'default'
+    with zopen(gff) as infile:
+        for line in infile:
+            if line.startswith('#'):
+                if '!processor NCBI annotwriter' in line:
+                    parser = _gff_ncbi_parser
+                    _format = 'ncbi'
+            else:
+                break
+    return parser, _format
+
+
+def _clean_ncbi_names(annot):
+    Clean = {}
+    for k, v in annot.items():
+        new_ids = []
+        for i, x in enumerate(v['ids']):
+            new_ids.append('{}-T{}'.format(k, i+1))
+        v['ids'] = new_ids
+        Clean[k] = v
+    return Clean
+
+
 def gff2dict(
     gff,
     fasta,
@@ -636,7 +1117,11 @@ def gff2dict(
     # some logic here to predict format eventually
     if not annotation:
         annotation = {}
-    annotation, parse_errors = _gff_default_parser(gff, fasta, annotation)
+    # autodetect format
+    gff_parser, _format = _detect_format(gff)
+    annotation, parse_errors = gff_parser(gff, fasta, annotation)
+    if _format == 'ncbi':  # clean up identifer names
+        annotation = _clean_ncbi_names(annotation)
     if debug:
         for err, err_v in parse_errors.items():
             if len(err_v) > 0:  # then tell user
