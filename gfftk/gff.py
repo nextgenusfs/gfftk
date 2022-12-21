@@ -8,6 +8,7 @@ from .utils import zopen
 from urllib.parse import unquote
 import uuid
 import io
+import gzip
 
 
 def start_end_gap(seq, coords):
@@ -1275,7 +1276,13 @@ def dict2gff3(input, output=False, debug=False):
     sortedGenes = OrderedDict(sGenes)
     # then loop through and write GFF3 format
     if output:
-        gffout = zopen(output, mode="w")
+        if output.endswith(".gz"):
+            copen = gzip.open
+            mopen = "wt"
+        else:
+            copen = open
+            mopen = "w"
+        gffout = copen(output, mopen)
     else:
         gffout = sys.stdout
     gffout.write("##gff-version 3\n")
@@ -1522,7 +1529,13 @@ def dict2gtf(input, output=False):
     sGenes = natsorted(iter(input.items()), key=_sortDict)
     sortedGenes = OrderedDict(sGenes)
     if output:
-        gtfout = zopen(output, mode="w")
+        if output.endswith(".gz"):
+            copen = gzip.open
+            mopen = "wt"
+        else:
+            copen = open
+            mopen = "w"
+        gtfout = copen(output, mopen)
     else:
         gtfout = sys.stdout
     for k, v in list(sortedGenes.items()):

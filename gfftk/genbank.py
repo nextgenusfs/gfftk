@@ -6,6 +6,7 @@ from .utils import zopen, readBlocks2
 from .go import go_term_dict
 from .interlap import InterLap
 import io
+import gzip
 
 
 def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
@@ -434,7 +435,13 @@ def dict2tbl(
             return False
 
     if output:
-        tbl = zopen(output, mode="w")
+        if output.endswith(".gz"):
+            copen = gzip.open
+            mopen = "wt"
+        else:
+            copen = open
+            mopen = "w"
+        tbl = copen(output, mopen)
     else:
         tbl = sys.stdout
     # now convert to tbl format
