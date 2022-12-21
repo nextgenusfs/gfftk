@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from .utils import zopen
+import io
 
 
 codon_table = {
@@ -233,6 +234,8 @@ def translate(dna, strand, phase, table=1):
 def fastaparser(handle):
     # Skip any text before the first record (e.g. blank lines, comments)
     for line in handle:
+        if isinstance(line, bytes):
+            line = line.decode()
         if line[0] == ">":
             title = line[1:].rstrip()
             break
@@ -241,6 +244,8 @@ def fastaparser(handle):
         return
     lines = []
     for line in handle:
+        if isinstance(line, bytes):
+            line = line.decode()
         if line[0] == ">":
             yield title, "".join(lines).replace(" ", "").replace("\r", "")
             lines = []
@@ -270,14 +275,20 @@ def fasta2dict(fasta, full_header=False):
 
     """
     seqs = OrderedDict()
-    with zopen(fasta) as infile:
-        for title, seq in fastaparser(infile):
-            if full_header:
-                title = title
-            else:
-                if " " in title:
-                    title = title.split(" ", 1)[0]
-            seqs[title] = seq
+    if isinstance(fasta, io.BytesIO):
+        fasta.seek(0)
+        infile = fasta
+    else:
+        infile = zopen(fasta)
+    for title, seq in fastaparser(infile):
+        if full_header:
+            title = title
+        else:
+            if " " in title:
+                title = title.split(" ", 1)[0]
+        seqs[title] = seq
+    if not isinstance(fasta, io.BytesIO):
+        infile.close()
     return seqs
 
 
@@ -301,14 +312,20 @@ def fasta2headers(fasta, full_header=False):
     """
     # generate a set of the contig/scaffold names
     headers = set()
-    with zopen(fasta) as infile:
-        for title, seq in fastaparser(infile):
-            if full_header:
-                title = title
-            else:
-                if " " in title:
-                    title = title.split(" ", 1)[0]
-            headers.add(title)
+    if isinstance(fasta, io.BytesIO):
+        fasta.seek(0)
+        infile = fasta
+    else:
+        infile = zopen(fasta)
+    for title, seq in fastaparser(infile):
+        if full_header:
+            title = title
+        else:
+            if " " in title:
+                title = title.split(" ", 1)[0]
+        headers.add(title)
+    if not isinstance(fasta, io.BytesIO):
+        infile.close()
     return headers
 
 
@@ -332,14 +349,20 @@ def fasta2lengths(fasta, full_header=False):
 
     """
     seqs = {}
-    with zopen(fasta) as infile:
-        for title, seq in fastaparser(infile):
-            if full_header:
-                title = title
-            else:
-                if " " in title:
-                    title = title.split(" ", 1)[0]
-            seqs[title] = len(seq)
+    if isinstance(fasta, io.BytesIO):
+        fasta.seek(0)
+        infile = fasta
+    else:
+        infile = zopen(fasta)
+    for title, seq in fastaparser(infile):
+        if full_header:
+            title = title
+        else:
+            if " " in title:
+                title = title.split(" ", 1)[0]
+        seqs[title] = len(seq)
+    if not isinstance(fasta, io.BytesIO):
+        infile.close()
     return seqs
 
 
