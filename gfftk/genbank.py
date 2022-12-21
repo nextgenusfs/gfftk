@@ -5,6 +5,7 @@ from .fasta import getSeqRegions, fasta2dict, translate
 from .utils import zopen, readBlocks2
 from .go import go_term_dict
 from .interlap import InterLap
+import io
 
 
 def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
@@ -17,259 +18,261 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
     if not annotation:
         annotation = {}
     errors = []
-    with zopen(input) as infile:
-        contig = ""
-        for item in readBlocks2(infile, ">Feature", "\tgene\n"):
-            if item[0].startswith(">Feature"):  # this will be contig header block
-                contig = item[0].rstrip().split(" ")[-1]
-            else:  # these are all gene model blocks
-                (
-                    geneID,
-                    Name,
-                    type,
-                    start,
-                    end,
-                    fivepartial,
-                    threepartial,
-                    strand,
-                    location,
-                ) = (None,) * 9
-                codon_start = []
-                transcriptID = []
-                proteinID = []
-                synonyms = []
-                product = []
-                phase = "?"
-                first, firstpartial, second, secondpartial = (False,) * 4
-                position = None
-                # check number of transcripts
-                tNum = 0
-                for z in item:
-                    if z.startswith("\t\t\ttranscript_id"):
-                        tNum += 1
-                if tNum > 0:
-                    tNum = int(tNum / 2)
-                if tNum == 0:
-                    tNum = 1
-                # setup lists for transcripts
-                mRNA = [[] for y in range(tNum)]
-                CDS = [[] for y in range(tNum)]
-                note = [[] for y in range(tNum)]
-                dbxref = [[] for y in range(tNum)]
-                ECnum = [[] for y in range(tNum)]
-                go_terms = [[] for y in range(tNum)]
-                fivepartial = [
-                    False,
-                ] * tNum
-                threepartial = [
-                    False,
-                ] * tNum
-                currentNum = 0
-                for x in item:
-                    exonF, exonR, cdsF, cdsR, cols = (None,) * 5
-                    if x.endswith("\tgene\n") and not position:
-                        cols = x.strip().split("\t")
-                        position = "gene"
-                        if cols[0].startswith("<"):
-                            first = int(cols[0].split("<")[-1])
-                        else:
-                            first = int(cols[0])
-                        if cols[1].startswith(">"):
-                            second = int(cols[1].split(">")[-1])
-                        else:
-                            second = int(cols[1])
-                        if first < second:
-                            start = first
-                            end = second
-                            strand = "+"
-                        else:
-                            start = second
-                            end = first
-                            strand = "-"
-                        location = (start, end)
-                    elif x.startswith("\t\t\tgene\t"):
-                        Name = x.strip().split("\t")[-1]
-                    elif x.startswith("\t\t\tlocus_tag\t"):
-                        geneID = x.strip().split("\t")[-1]
-                    elif (
-                        x.endswith("\ttRNA\n")
-                        and x.count("\t") == 2
-                        and position == "gene"
-                    ):
-                        type = "tRNA"
-                        position = "tRNA"
-                        cols = x.strip().split("\t")
-                        exonF = int(cols[0].replace("<", ""))
-                        exonR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            mRNA[currentNum].append((exonF, exonR))
-                        else:
-                            mRNA[currentNum].append((exonR, exonF))
-                    elif (
-                        x.endswith("\tncRNA\n")
-                        and x.count("\t") == 2
-                        and position == "gene"
-                    ):
-                        type = "ncRNA"
-                        position = "ncRNA"
-                        cols = x.strip().split("\t")
-                        exonF = int(cols[0].replace("<", ""))
-                        exonR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            mRNA[currentNum].append((exonF, exonR))
-                        else:
-                            mRNA[currentNum].append((exonR, exonF))
-                    elif (
-                        x.endswith("\trRNA\n")
-                        and x.count("\t") == 2
-                        and position == "gene"
-                    ):
-                        type = "rRNA"
-                        position = "rRNA"
-                        cols = x.strip().split("\t")
-                        exonF = int(cols[0].replace("<", ""))
-                        exonR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            mRNA[currentNum].append((exonF, exonR))
-                        else:
-                            mRNA[currentNum].append((exonR, exonF))
-                    elif x.endswith("\tmRNA\n") and x.count("\t") == 2:
-                        if position == "CDS":
-                            currentNum += 1
-                        elif position == "gene":
-                            type = "mRNA"
-                        position = "mRNA"
-                        cols = x.strip().split("\t")
-                        exonF = int(cols[0].replace("<", ""))
-                        exonR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            mRNA[currentNum].append((exonF, exonR))
-                        else:
-                            mRNA[currentNum].append((exonR, exonF))
-                    elif x.endswith("\tCDS\n") and x.count("\t") == 2:
-                        position = "CDS"
-                        cols = x.strip().split("\t")
-                        cdsF = int(cols[0].replace("<", ""))
-                        cdsR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            CDS[currentNum].append((cdsF, cdsR))
-                        else:
-                            CDS[currentNum].append((cdsR, cdsF))
-                    elif x.startswith("\t\t\tcodon_start\t"):
-                        cNum = int(x.strip().split("\t")[-1])
-                        codon_start.append(cNum)
-                        phase = cNum - 1
-                    elif x.startswith("\t\t\tproduct\t") and position != "mRNA":
-                        product.append(x.strip().split("\t")[-1])
-                    elif x.startswith("\t\t\ttranscript_id\t"):
-                        tID = x.strip().split("|")[-1]
-                        if "_mrna" in tID:
-                            tID = tID.replace("_mrna", "")
-                        if not tID in transcriptID:
-                            transcriptID.append(tID)
-                    elif x.startswith("\t\t\tprotein_id\t"):
-                        pID = x.strip().split("|")[-1]
-                        if not pID in proteinID:
-                            proteinID.append(pID)
-                    elif x.startswith("\t\t\tgene_synonym\t"):
-                        synonyms.append(x.strip().split("\t")[-1])
-                    elif x.startswith("\t\t\tgo_"):  # go terms
-                        go_terms[currentNum].append(
-                            "GO:{:}".format(x.strip().split("|")[1])
-                        )
-                    elif x.startswith("\t\t\tnote\t"):
-                        note[currentNum].append(x.strip().split("\t")[-1])
-                    elif x.startswith("\t\t\tdb_xref\t"):
-                        dbxref[currentNum].append(x.strip().split("\t")[-1])
-                    elif x.startswith("\t\t\tEC_number\t"):
-                        ECnum[currentNum].append(x.strip().split("\t")[-1])
-                    elif position == "mRNA" and x.count("\t") == 1:
-                        cols = x.strip().split("\t")
-                        exonF = int(cols[0].replace("<", ""))
-                        exonR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            mRNA[currentNum].append((exonF, exonR))
-                        else:
-                            mRNA[currentNum].append((exonR, exonF))
-                    elif position in ["tRNA", "ncRNA", "rRNA"] and x.count("\t") == 1:
-                        cols = x.strip().split("\t")
-                        exonF = int(cols[0].replace("<", ""))
-                        exonR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            mRNA[currentNum].append((exonF, exonR))
-                        else:
-                            mRNA[currentNum].append((exonR, exonF))
-                    elif position == "CDS" and x.count("\t") == 1:
-                        cols = x.strip().split("\t")
-                        cdsF = int(cols[0].replace("<", ""))
-                        cdsR = int(cols[1].replace(">", ""))
-                        if strand == "+":
-                            CDS[currentNum].append((cdsF, cdsR))
-                        else:
-                            CDS[currentNum].append((cdsR, cdsF))
-                if not geneID in annotation:
-                    if type in ["tRNA", "ncRNA", "rRNA"]:
-                        annotation[geneID] = {
-                            "name": Name,
-                            "type": [
-                                type,
-                            ]
-                            * tNum,
-                            "transcript": [],
-                            "cds_transcript": [],
-                            "protein": [],
-                            "5UTR": [[]],
-                            "3UTR": [[]],
-                            "codon_start": codon_start,
-                            "ids": [geneID + "-T1"],
-                            "CDS": CDS,
-                            "mRNA": mRNA,
-                            "strand": strand,
-                            "gene_synonym": synonyms,
-                            "location": location,
-                            "contig": contig,
-                            "product": product,
-                            "source": "GFFtk",
-                            "phase": [phase],
-                            "db_xref": dbxref,
-                            "go_terms": go_terms,
-                            "EC_number": ECnum,
-                            "note": note,
-                            "partialStart": [True],
-                            "partialStop": [True],
-                            "pseudo": False,
-                        }
+    if isinstance(input, io.BytesIO):
+        input.seek(0)
+        infile = input
+    else:
+        infile = zopen(input)
+    contig = ""
+    for item in readBlocks2(infile, ">Feature", "\tgene\n"):
+        if item[0].startswith(">Feature"):  # this will be contig header block
+            contig = item[0].rstrip().split(" ")[-1]
+        else:  # these are all gene model blocks
+            (
+                geneID,
+                Name,
+                type,
+                start,
+                end,
+                fivepartial,
+                threepartial,
+                strand,
+                location,
+            ) = (None,) * 9
+            codon_start = []
+            transcriptID = []
+            proteinID = []
+            synonyms = []
+            product = []
+            phase = "?"
+            first, firstpartial, second, secondpartial = (False,) * 4
+            position = None
+            # check number of transcripts
+            tNum = 0
+            for z in item:
+                if z.startswith("\t\t\ttranscript_id"):
+                    tNum += 1
+            if tNum > 0:
+                tNum = int(tNum / 2)
+            if tNum == 0:
+                tNum = 1
+            # setup lists for transcripts
+            mRNA = [[] for y in range(tNum)]
+            CDS = [[] for y in range(tNum)]
+            note = [[] for y in range(tNum)]
+            dbxref = [[] for y in range(tNum)]
+            ECnum = [[] for y in range(tNum)]
+            go_terms = [[] for y in range(tNum)]
+            fivepartial = [
+                False,
+            ] * tNum
+            threepartial = [
+                False,
+            ] * tNum
+            currentNum = 0
+            for x in item:
+                exonF, exonR, cdsF, cdsR, cols = (None,) * 5
+                if x.endswith("\tgene\n") and not position:
+                    cols = x.strip().split("\t")
+                    position = "gene"
+                    if cols[0].startswith("<"):
+                        first = int(cols[0].split("<")[-1])
                     else:
-                        annotation[geneID] = {
-                            "name": Name,
-                            "type": [
-                                type,
-                            ]
-                            * tNum,
-                            "transcript": [],
-                            "cds_transcript": [],
-                            "protein": [],
-                            "5UTR": [],
-                            "3UTR": [],
-                            "codon_start": codon_start,
-                            "ids": proteinID,
-                            "CDS": CDS,
-                            "mRNA": mRNA,
-                            "strand": strand,
-                            "gene_synonym": synonyms,
-                            "location": location,
-                            "contig": contig,
-                            "product": product,
-                            "source": "GFFtk",
-                            "phase": [phase],
-                            "db_xref": dbxref,
-                            "go_terms": go_terms,
-                            "EC_number": ECnum,
-                            "note": note,
-                            "partialStart": fivepartial,
-                            "partialStop": threepartial,
-                            "pseudo": False,
-                        }
+                        first = int(cols[0])
+                    if cols[1].startswith(">"):
+                        second = int(cols[1].split(">")[-1])
+                    else:
+                        second = int(cols[1])
+                    if first < second:
+                        start = first
+                        end = second
+                        strand = "+"
+                    else:
+                        start = second
+                        end = first
+                        strand = "-"
+                    location = (start, end)
+                elif x.startswith("\t\t\tgene\t"):
+                    Name = x.strip().split("\t")[-1]
+                elif x.startswith("\t\t\tlocus_tag\t"):
+                    geneID = x.strip().split("\t")[-1]
+                elif (
+                    x.endswith("\ttRNA\n") and x.count("\t") == 2 and position == "gene"
+                ):
+                    type = "tRNA"
+                    position = "tRNA"
+                    cols = x.strip().split("\t")
+                    exonF = int(cols[0].replace("<", ""))
+                    exonR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        mRNA[currentNum].append((exonF, exonR))
+                    else:
+                        mRNA[currentNum].append((exonR, exonF))
+                elif (
+                    x.endswith("\tncRNA\n")
+                    and x.count("\t") == 2
+                    and position == "gene"
+                ):
+                    type = "ncRNA"
+                    position = "ncRNA"
+                    cols = x.strip().split("\t")
+                    exonF = int(cols[0].replace("<", ""))
+                    exonR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        mRNA[currentNum].append((exonF, exonR))
+                    else:
+                        mRNA[currentNum].append((exonR, exonF))
+                elif (
+                    x.endswith("\trRNA\n") and x.count("\t") == 2 and position == "gene"
+                ):
+                    type = "rRNA"
+                    position = "rRNA"
+                    cols = x.strip().split("\t")
+                    exonF = int(cols[0].replace("<", ""))
+                    exonR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        mRNA[currentNum].append((exonF, exonR))
+                    else:
+                        mRNA[currentNum].append((exonR, exonF))
+                elif x.endswith("\tmRNA\n") and x.count("\t") == 2:
+                    if position == "CDS":
+                        currentNum += 1
+                    elif position == "gene":
+                        type = "mRNA"
+                    position = "mRNA"
+                    cols = x.strip().split("\t")
+                    exonF = int(cols[0].replace("<", ""))
+                    exonR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        mRNA[currentNum].append((exonF, exonR))
+                    else:
+                        mRNA[currentNum].append((exonR, exonF))
+                elif x.endswith("\tCDS\n") and x.count("\t") == 2:
+                    position = "CDS"
+                    cols = x.strip().split("\t")
+                    cdsF = int(cols[0].replace("<", ""))
+                    cdsR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        CDS[currentNum].append((cdsF, cdsR))
+                    else:
+                        CDS[currentNum].append((cdsR, cdsF))
+                elif x.startswith("\t\t\tcodon_start\t"):
+                    cNum = int(x.strip().split("\t")[-1])
+                    codon_start.append(cNum)
+                    phase = cNum - 1
+                elif x.startswith("\t\t\tproduct\t") and position != "mRNA":
+                    product.append(x.strip().split("\t")[-1])
+                elif x.startswith("\t\t\ttranscript_id\t"):
+                    tID = x.strip().split("|")[-1]
+                    if "_mrna" in tID:
+                        tID = tID.replace("_mrna", "")
+                    if not tID in transcriptID:
+                        transcriptID.append(tID)
+                elif x.startswith("\t\t\tprotein_id\t"):
+                    pID = x.strip().split("|")[-1]
+                    if not pID in proteinID:
+                        proteinID.append(pID)
+                elif x.startswith("\t\t\tgene_synonym\t"):
+                    synonyms.append(x.strip().split("\t")[-1])
+                elif x.startswith("\t\t\tgo_"):  # go terms
+                    go_terms[currentNum].append(
+                        "GO:{:}".format(x.strip().split("|")[1])
+                    )
+                elif x.startswith("\t\t\tnote\t"):
+                    note[currentNum].append(x.strip().split("\t")[-1])
+                elif x.startswith("\t\t\tdb_xref\t"):
+                    dbxref[currentNum].append(x.strip().split("\t")[-1])
+                elif x.startswith("\t\t\tEC_number\t"):
+                    ECnum[currentNum].append(x.strip().split("\t")[-1])
+                elif position == "mRNA" and x.count("\t") == 1:
+                    cols = x.strip().split("\t")
+                    exonF = int(cols[0].replace("<", ""))
+                    exonR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        mRNA[currentNum].append((exonF, exonR))
+                    else:
+                        mRNA[currentNum].append((exonR, exonF))
+                elif position in ["tRNA", "ncRNA", "rRNA"] and x.count("\t") == 1:
+                    cols = x.strip().split("\t")
+                    exonF = int(cols[0].replace("<", ""))
+                    exonR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        mRNA[currentNum].append((exonF, exonR))
+                    else:
+                        mRNA[currentNum].append((exonR, exonF))
+                elif position == "CDS" and x.count("\t") == 1:
+                    cols = x.strip().split("\t")
+                    cdsF = int(cols[0].replace("<", ""))
+                    cdsR = int(cols[1].replace(">", ""))
+                    if strand == "+":
+                        CDS[currentNum].append((cdsF, cdsR))
+                    else:
+                        CDS[currentNum].append((cdsR, cdsF))
+            if not geneID in annotation:
+                if type in ["tRNA", "ncRNA", "rRNA"]:
+                    annotation[geneID] = {
+                        "name": Name,
+                        "type": [
+                            type,
+                        ]
+                        * tNum,
+                        "transcript": [],
+                        "cds_transcript": [],
+                        "protein": [],
+                        "5UTR": [[]],
+                        "3UTR": [[]],
+                        "codon_start": codon_start,
+                        "ids": [geneID + "-T1"],
+                        "CDS": CDS,
+                        "mRNA": mRNA,
+                        "strand": strand,
+                        "gene_synonym": synonyms,
+                        "location": location,
+                        "contig": contig,
+                        "product": product,
+                        "source": "GFFtk",
+                        "phase": [phase],
+                        "db_xref": dbxref,
+                        "go_terms": go_terms,
+                        "EC_number": ECnum,
+                        "note": note,
+                        "partialStart": [True],
+                        "partialStop": [True],
+                        "pseudo": False,
+                    }
+                else:
+                    annotation[geneID] = {
+                        "name": Name,
+                        "type": [
+                            type,
+                        ]
+                        * tNum,
+                        "transcript": [],
+                        "cds_transcript": [],
+                        "protein": [],
+                        "5UTR": [],
+                        "3UTR": [],
+                        "codon_start": codon_start,
+                        "ids": proteinID,
+                        "CDS": CDS,
+                        "mRNA": mRNA,
+                        "strand": strand,
+                        "gene_synonym": synonyms,
+                        "location": location,
+                        "contig": contig,
+                        "product": product,
+                        "source": "GFFtk",
+                        "phase": [phase],
+                        "db_xref": dbxref,
+                        "go_terms": go_terms,
+                        "EC_number": ECnum,
+                        "note": note,
+                        "partialStart": fivepartial,
+                        "partialStop": threepartial,
+                        "pseudo": False,
+                    }
+    if not isinstance(input, io.BytesIO):
+        infile.close()
     # now we need to sort coordinates, get protein/transcript sequences and capture UTRs
     SeqRecords = fasta2dict(fasta)
     for k, v in list(annotation.items()):
