@@ -1039,6 +1039,8 @@ def validate_and_translate_models(
                         results["partialStart"].append(False)
                     else:
                         results["partialStart"].append(True)
+                    if protSeq.rstrip("*").count("*") > 0:
+                        results["pseudo"] = True
         else:
             results["CDS"].append([])
             results["type"].append(v["type"][i])
@@ -1096,6 +1098,7 @@ def gff2dict(
     table=1,
     debug=False,
     gap_filter=False,
+    gff_format="auto",
     logger=sys.stderr.write,
 ):
     """Convert GFF3 and FASTA to standardized GFFtk dictionary format.
@@ -1130,7 +1133,14 @@ def gff2dict(
     if not annotation:
         annotation = {}
     # autodetect format
-    gff_parser, _format = _detect_format(gff)
+    if gff_format == "auto":
+        gff_parser, _format = _detect_format(gff)
+    elif gff_format == "ncbi-euk":
+        gff_parser = _gff_ncbi_parser
+        _format = "ncbi"
+    else:
+        gff_parser = _gff_default_parser
+        _format = "default"
     annotation, parse_errors = gff_parser(gff, fasta, annotation)
     if _format == "ncbi":  # clean up identifer names
         annotation = _clean_ncbi_names(annotation)
@@ -1251,12 +1261,17 @@ def dict2gff3(input, output=False, debug=False):
         gffout = sys.stdout
     gffout.write("##gff-version 3\n")
     for k, v in list(sortedGenes.items()):
+        genefeature = "gene"
+        if "pseudo" in v:
+            if v["pseudo"]:
+                genefeature = "pseudogene"
         if v["name"]:
             if "gene_synonym" in v and len(v["gene_synonym"]) > 0:
                 gffout.write(
-                    "{:}\t{:}\tgene\t{:}\t{:}\t.\t{:}\t.\tID={:};Name={:};Alias={:};\n".format(
+                    "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Name={:};Alias={:};\n".format(
                         v["contig"],
                         v["source"],
+                        genefeature,
                         v["location"][0],
                         v["location"][1],
                         v["strand"],
@@ -1267,9 +1282,10 @@ def dict2gff3(input, output=False, debug=False):
                 )
             else:
                 gffout.write(
-                    "{:}\t{:}\tgene\t{:}\t{:}\t.\t{:}\t.\tID={:};Name={:};\n".format(
+                    "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Name={:};\n".format(
                         v["contig"],
                         v["source"],
+                        genefeature,
                         v["location"][0],
                         v["location"][1],
                         v["strand"],
@@ -1280,9 +1296,10 @@ def dict2gff3(input, output=False, debug=False):
         else:
             if "gene_synonym" in v and len(v["gene_synonym"]) > 0:
                 gffout.write(
-                    "{:}\t{:}\tgene\t{:}\t{:}\t.\t{:}\t.\tID={:};Alias={:};\n".format(
+                    "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Alias={:};\n".format(
                         v["contig"],
                         v["source"],
+                        genefeature,
                         v["location"][0],
                         v["location"][1],
                         v["strand"],
@@ -1292,9 +1309,10 @@ def dict2gff3(input, output=False, debug=False):
                 )
             else:
                 gffout.write(
-                    "{:}\t{:}\tgene\t{:}\t{:}\t.\t{:}\t.\tID={:};\n".format(
+                    "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};\n".format(
                         v["contig"],
                         v["source"],
+                        genefeature,
                         v["location"][0],
                         v["location"][1],
                         v["strand"],
@@ -1433,6 +1451,10 @@ def dict2gff3(input, output=False, debug=False):
                                 )
                             )
             if v["type"][i] == "mRNA":
+                # if a pseudogene do not output CDS
+                if "pseudo" in v:
+                    if v["pseudo"]:
+                        continue
                 num_cds = len(v["CDS"][i])
                 # GFF3 phase is 1 less than flat file
                 current_phase = v["codon_start"][i] - 1
