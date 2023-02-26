@@ -482,6 +482,166 @@ def _gff_default_parser(gff, fasta, Genes):
     return Genes, errors
 
 
+def _gff_miniprot_parser(gff, fasta, Genes):
+    # this is a specific parser for lh3 miniprot gff3 format; contains only mRNA, CDS, and stop_codon
+    # CDS features do not have ID=, just Parent; stop_codon just has Parent and Rank
+    # idea is to go through line by line and parse the records and add to Genes dictionary
+    errors = {
+        "contig_name": [],
+        "columns": [],
+        "comments": [],
+        "unparsed_attributes": [],
+        "no_parent": [],
+        "no_id": [],
+    }
+    SeqRecords = fasta2headers(fasta)
+    if isinstance(gff, io.BytesIO):
+        gff.seek(0)
+        input = gff
+    else:
+        input = zopen(gff)
+    for line in input:
+        if line.startswith("\n") or line.startswith("#"):
+            errors["comments"].append(line)
+            continue
+        line = line.rstrip()
+        # skip lines that aren't 9 columns
+        if not line.count("\t") == 8:
+            errors["columns"].append(line)
+            continue
+        (
+            contig,
+            source,
+            feature,
+            start,
+            end,
+            score,
+            strand,
+            phase,
+            attributes,
+        ) = line.split("\t")
+        if feature not in [
+            "mRNA",
+            "CDS",
+            "stop_codon",
+        ]:
+            continue
+        if not contig in SeqRecords:
+            errors["contig_name"].append(line)
+            continue
+        attributes = unquote(attributes)
+        source = unquote(source)
+        feature = unquote(feature)
+        start = int(start)
+        end = int(end)
+        ID = None
+        Parent = None
+        Name = None
+        Product = None
+        GeneFeature = None
+        gbkey = None
+        info = {}
+        for field in attributes.split(";"):
+            try:
+                k, v = field.split("=", 1)
+                info[k] = v.strip()
+            except (IndexError, ValueError) as E:
+                pass
+        # now can lookup in info dict for values
+        ID = info.get("ID", None)
+        Parent = info.get("Parent", None)
+        Target = info.get("Target", None)
+        Identity = info.get("Identity", None)
+        Positive = info.get("Positive", None)
+        Rank = info.get("Rank", None)
+        if Target:
+            Name = Target.split()[0]
+        # for error reporting capture unparsed keys
+        for attr, value in info.items():
+            if not attr in ["ID", "Parent", "Identity", "Rank", "Positive", "Target"]:
+                if not attr in errors["unparsed_attributes"]:
+                    errors["unparsed_attributes"].append(attr)
+        # now we can do add to dictionary these parsed values
+        # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
+        if feature in ["mRNA"]:
+            if not ID in Genes:
+                Genes[ID] = {
+                    "name": Name,
+                    "type": ["mRNA"],
+                    "transcript": [],
+                    "cds_transcript": [],
+                    "protein": [],
+                    "5UTR": [[]],
+                    "3UTR": [[]],
+                    "gene_synonym": [],
+                    "codon_start": [],
+                    "ids": [ID],
+                    "CDS": [[]],
+                    "mRNA": [[]],
+                    "strand": strand,
+                    "EC_number": [[]],
+                    "location": (start, end),
+                    "contig": contig,
+                    "product": ["miniprot alignment"],
+                    "source": source,
+                    "phase": [[]],
+                    "db_xref": [[]],
+                    "go_terms": [[]],
+                    "note": [
+                        [
+                            f"TARGET:{Target}",
+                            f"IDENTITY:{Identity}",
+                            f"RANK:{Rank}",
+                            f"Positive:{Positive}",
+                        ]
+                    ],
+                    "partialStart": [],
+                    "partialStop": [],
+                    "pseudo": False,
+                }
+            else:
+                if start < Genes[ID]["location"][0]:
+                    Genes[ID]["location"] = (start, Genes[ID]["location"][1])
+                if end > Genes[ID]["location"][1]:
+                    Genes[ID]["location"] = (Genes[ID]["location"][0], end)
+                Genes[ID]["Note"].append(
+                    [
+                        f"TARGET:{Target}",
+                        f"IDENTITY:{Identity}",
+                        f"RANK:{Rank}",
+                        f"Positive:{Positive}",
+                    ]
+                )
+        elif feature in ["CDS"]:
+            if Parent:
+                # determine which transcript this is get index from id
+                i = Genes[Parent]["ids"].index(Parent)
+                Genes[Parent]["CDS"][i].append((start, end))
+                Genes[Parent]["mRNA"][i].append((start, end))
+                # add phase
+                try:
+                    Genes[Parent]["phase"][i].append(int(phase))
+                except ValueError:
+                    Genes[Parent]["phase"][i].append("?")
+        elif feature in ["stop_codon"]:
+            if Parent:
+                i = Genes[Parent]["ids"].index(Parent)
+                # here we need to extend the last CDS if + and first if - strand
+                if strand == "+":
+                    lt = Genes[Parent]["CDS"][i][-1]
+                    nLT = (lt[0], end)
+                    Genes[Parent]["CDS"][i][-1] = nLT
+                    Genes[Parent]["mRNA"][i][-1] = nLT
+                elif strand == "-":
+                    ft = Genes[Parent]["CDS"][i][0]
+                    nFT = (start, ft[1])
+                    Genes[Parent]["CDS"][i][0] = nFT
+                    Genes[Parent]["mRNA"][i][0] = nFT
+    if not isinstance(gff, io.BytesIO):
+        input.close()
+    return Genes, errors
+
+
 def _gff_ncbi_parser(gff, fasta, Genes):
     # this is the default general parser to populate the dictionary
     # idea is to go through line by line and parse the records and add to Genes dictionary
@@ -1158,6 +1318,9 @@ def gff2dict(
     elif gff_format == "ncbi-euk":
         gff_parser = _gff_ncbi_parser
         _format = "ncbi"
+    elif gff_format == "miniprot":
+        gff_parser = _gff_miniprot_parser
+        _format = "miniprot"
     else:
         gff_parser = _gff_default_parser
         _format = "default"
