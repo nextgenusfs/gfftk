@@ -366,7 +366,7 @@ def fasta2lengths(fasta, full_header=False):
     return seqs
 
 
-def getSeqRegions(seqs, header, coordinates):
+def getSeqRegions(seqs, header, coordinates, coords=False):
     """From sequence dictionary return spliced coordinates.
 
     Takes a sequence dictionary (ie from fasta2dict), the contig name (header)
@@ -389,11 +389,14 @@ def getSeqRegions(seqs, header, coordinates):
     """
     # takes SeqRecord dictionary or Index, returns sequence string
     # coordinates is a list of tuples [(1,10), (20,30)]
-    result = ""
+    result = []
     sorted_coordinates = sorted(coordinates, key=lambda tup: tup[0])
     for x in sorted_coordinates:
-        result += seqs[header][x[0] - 1 : x[1]]
-    return result
+        result.append(seqs[header][x[0] - 1 : x[1]])
+    if coords:
+        return "".join(result), result
+    else:
+        return "".join(result)
 
 
 def softwrap(string, every=80):

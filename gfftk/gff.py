@@ -3,12 +3,20 @@ import random
 import concurrent.futures
 from collections import OrderedDict
 from natsort import natsorted
-from .fasta import translate, fasta2dict, fasta2headers, getSeqRegions
+from .fasta import (
+    translate,
+    fasta2dict,
+    fasta2headers,
+    getSeqRegions,
+    RevComp,
+    codon_table,
+)
 from .utils import zopen
 from urllib.parse import unquote
 import uuid
 import io
 import gzip
+import re
 
 
 def start_end_gap(seq, coords):
@@ -589,7 +597,6 @@ def _gff_miniprot_parser(gff, fasta, Genes):
                     "go_terms": [[]],
                     "note": [
                         [
-                            f"TARGET:{Target}",
                             f"IDENTITY:{Identity}",
                             f"RANK:{Rank}",
                             f"Positive:{Positive}",
@@ -598,6 +605,8 @@ def _gff_miniprot_parser(gff, fasta, Genes):
                     "partialStart": [],
                     "partialStop": [],
                     "pseudo": False,
+                    "score": [],
+                    "target": [],
                 }
             else:
                 if start < Genes[ID]["location"][0]:
@@ -606,7 +615,6 @@ def _gff_miniprot_parser(gff, fasta, Genes):
                     Genes[ID]["location"] = (Genes[ID]["location"][0], end)
                 Genes[ID]["Note"].append(
                     [
-                        f"TARGET:{Target}",
                         f"IDENTITY:{Identity}",
                         f"RANK:{Rank}",
                         f"Positive:{Positive}",
@@ -618,6 +626,8 @@ def _gff_miniprot_parser(gff, fasta, Genes):
                 i = Genes[Parent]["ids"].index(Parent)
                 Genes[Parent]["CDS"][i].append((start, end))
                 Genes[Parent]["mRNA"][i].append((start, end))
+                Genes[Parent]["score"].append(round(float(Identity) * 100, 2))
+                Genes[Parent]["target"].append(Target)
                 # add phase
                 try:
                     Genes[Parent]["phase"][i].append(int(phase))
@@ -637,6 +647,119 @@ def _gff_miniprot_parser(gff, fasta, Genes):
                     nFT = (start, ft[1])
                     Genes[Parent]["CDS"][i][0] = nFT
                     Genes[Parent]["mRNA"][i][0] = nFT
+    if not isinstance(gff, io.BytesIO):
+        input.close()
+    return Genes, errors
+
+
+def _gff_alignment_parser(gff, fasta, Genes):
+    # this is a specific parser for EVM-like alignment evidence
+    # features are effectively mRNA coords linked by identical ID
+    # idea is to go through line by line and parse the records and add to Genes dictionary
+    errors = {
+        "contig_name": [],
+        "columns": [],
+        "comments": [],
+        "unparsed_attributes": [],
+        "no_parent": [],
+        "no_id": [],
+    }
+    SeqRecords = fasta2headers(fasta)
+    if isinstance(gff, io.BytesIO):
+        gff.seek(0)
+        input = gff
+    else:
+        input = zopen(gff)
+    for line in input:
+        if line.startswith("\n") or line.startswith("#"):
+            errors["comments"].append(line)
+            continue
+        line = line.rstrip()
+        # skip lines that aren't 9 columns
+        if not line.count("\t") == 8:
+            errors["columns"].append(line)
+            continue
+        (
+            contig,
+            source,
+            feature,
+            start,
+            end,
+            score,
+            strand,
+            phase,
+            attributes,
+        ) = line.split("\t")
+        if not contig in SeqRecords:
+            errors["contig_name"].append(line)
+            continue
+        attributes = unquote(attributes)
+        source = unquote(source)
+        feature = unquote(feature)
+        start = int(start)
+        end = int(end)
+        ID = None
+        Parent = None
+        Name = None
+        Product = None
+        GeneFeature = None
+        gbkey = None
+        info = {}
+        for field in attributes.split(";"):
+            try:
+                k, v = field.split("=", 1)
+                info[k] = v.strip()
+            except (IndexError, ValueError) as E:
+                pass
+        # now can lookup in info dict for values
+        ID = info.get("ID", None)
+        Target = info.get("Target", None)
+        if Target:
+            Name = Target.split()[0]
+        # for error reporting capture unparsed keys
+        for attr, value in info.items():
+            if not attr in ["ID", "Target"]:
+                if not attr in errors["unparsed_attributes"]:
+                    errors["unparsed_attributes"].append(attr)
+        if feature in ["cDNA_match", "EST_match"]:
+            if not ID in Genes:
+                Genes[ID] = {
+                    "name": Name,
+                    "type": ["ncRNA"],
+                    "transcript": [],
+                    "cds_transcript": [],
+                    "protein": [],
+                    "5UTR": [[]],
+                    "3UTR": [[]],
+                    "gene_synonym": [],
+                    "codon_start": [],
+                    "ids": [ID],
+                    "CDS": [[]],
+                    "mRNA": [[(start, end)]],
+                    "strand": strand,
+                    "EC_number": [[]],
+                    "location": (start, end),
+                    "contig": contig,
+                    "product": ["transcript alignment"],
+                    "source": source,
+                    "phase": [[]],
+                    "db_xref": [[]],
+                    "go_terms": [[]],
+                    "note": [[]],
+                    "partialStart": [],
+                    "partialStop": [],
+                    "pseudo": False,
+                    "score": [round(float(score), 2)],
+                    "target": [Target],
+                }
+            else:
+                if start < Genes[ID]["location"][0]:
+                    Genes[ID]["location"] = (start, Genes[ID]["location"][1])
+                if end > Genes[ID]["location"][1]:
+                    Genes[ID]["location"] = (Genes[ID]["location"][0], end)
+                Genes[ID]["mRNA"][0].append((start, end))
+                Genes[ID]["score"].append(round(float(score), 2))
+                Genes[ID]["target"].append(Target)
     if not isinstance(gff, io.BytesIO):
         input.close()
     return Genes, errors
@@ -1179,6 +1302,7 @@ def validate_and_translate_models(
                     sortedResults = sorted(translateResults, key=lambda tup: tup[1])
                     codon_start = sortedResults[0][0]
                     protSeq = sortedResults[0][2]
+                    v["phase"][i] = codon_start - 1
                 else:
                     try:
                         codon_start = int(v["phase"][i][indexStart[0]]) + 1
@@ -1271,6 +1395,88 @@ def _clean_ncbi_names(annot):
     return Clean
 
 
+def _longest_orf(annot, fadict, minlen=50, table=1):
+    # this is for alignment phasing, where we go through each gene
+    # and see if can find full length coding region
+    Clean = {}
+    for k, v in annot.items():
+        if v["strand"] == "+":
+            sortedExons = sorted(v["mRNA"][0], key=lambda tup: tup[0])
+        else:
+            sortedExons = sorted(v["mRNA"][0], key=lambda tup: tup[0], reverse=True)
+        mrnaSeq = getSeqRegions(fadict, v["contig"], sortedExons)
+        if v["strand"] == "-":
+            searchSeq = RevComp(mrnaSeq).upper()
+        else:
+            searchSeq = mrnaSeq.upper()
+        # get all possible ORFs from the mRNA sequence
+        valid_starts = "|".join(codon_table[table]["start"])
+        allORFS = re.findall(
+            rf"((?:{valid_starts})(?:\S{{3}})*?T(?:AG|AA|GA))", searchSeq
+        )
+        longestORF = None
+        # if you found ORFs, then we'll get the longest one and see if meets criterea
+        if len(allORFS) > 0:
+            longestORF = max(allORFS, key=len)
+            if len(longestORF) > minlen * 3:  # than at least min prot length
+                # prot = translate(longestORF, "+", 0, table=table)
+                # now find out where this ORF is in the coords, sort all back to left --> right
+                if v["strand"] == "-":
+                    longestORF = RevComp(longestORF)
+                    sortedExons = sorted(v["mRNA"][0], key=lambda tup: tup[0])
+                # find left most position
+                left_pos = mrnaSeq.upper().index(longestORF)
+                # map the coords
+                CDS = []
+                cov = 0
+                lenOrf = len(longestORF)
+                c = 0
+                for i, (s, e) in enumerate(sortedExons):
+                    gap_len = e - s + 1
+                    last = c
+                    c += gap_len
+                    if c > left_pos:
+                        start_pos = s + left_pos - last
+                        break
+
+                for i, (s, f) in enumerate(sortedExons):
+                    if s <= start_pos <= f:  # means should start in this exon
+                        if (start_pos + lenOrf - 1) <= f:  # then single coord
+                            CDS.append((start_pos, (start_pos + lenOrf - 1)))
+                            break
+                        else:  # spans multiple coords
+                            CDS.append((start_pos, f))
+                            cov += f - start_pos + 1
+                    elif len(CDS) > 0:
+                        if cov <= lenOrf:
+                            remainder = lenOrf - cov
+                            if (f - s) < remainder:
+                                CDS.append((s, f))
+                                cov += f - s + 1
+                            else:
+                                CDS.append((s, s + remainder - 1))
+                                break
+                # see if this is correct
+                cdsSeq = getSeqRegions(fadict, v["contig"], CDS)
+                try:
+                    assert cdsSeq.upper() == longestORF.upper()
+                    # okay, then we can add CDS and change type
+                    v["type"] = ["mRNA"]
+                    if v["strand"] == "+":
+                        v["CDS"] = [sorted(CDS, key=lambda tup: tup[0])]
+                    else:
+                        v["CDS"] = [sorted(CDS, key=lambda tup: tup[0], reverse=True)]
+                    v["phase"] = ["?"]
+                    Clean[k] = v
+                except AssertionError:
+                    Clean[k] = v
+            else:
+                Clean[k] = v
+        else:  # did not find orfs so add as is
+            Clean[k] = v
+    return Clean
+
+
 def gff2dict(
     gff,
     fasta,
@@ -1321,12 +1527,18 @@ def gff2dict(
     elif gff_format == "miniprot":
         gff_parser = _gff_miniprot_parser
         _format = "miniprot"
+    elif gff_format == "alignment":
+        gff_parser = _gff_alignment_parser
+        _format = "alignment"
     else:
         gff_parser = _gff_default_parser
         _format = "default"
     annotation, parse_errors = gff_parser(gff, fasta, annotation)
+    SeqRecords = fasta2dict(fasta)
     if _format == "ncbi":  # clean up identifer names
         annotation = _clean_ncbi_names(annotation)
+    if _format == "alignment":
+        annotation = _longest_orf(annotation, SeqRecords)
     if debug:
         for err, err_v in parse_errors.items():
             if len(err_v) > 0:  # then tell user
@@ -1347,7 +1559,6 @@ def gff2dict(
                     )
                     print_errors = random.sample(err_v, 10)
                     logger("{}\n".format("\n".join(print_errors)))
-    SeqRecords = fasta2dict(fasta)
     if debug:
         logger(
             "Parsed {} contigs containing {} gene models\n".format(
@@ -1871,3 +2082,62 @@ def dict2gtf(input, output=False):
                 gtfout.write("\n")
     if output:
         gtfout.close()
+
+
+def dict2gff3alignments(input, output=False, debug=False, alignments="transcript"):
+    """Convert GFFtk standardized annotation dictionary to GFF3 alignments file.
+
+    Annotation dictionary generated by gff2dict or tbl2dict passed as input. Output format is GFF3-alignment, aka EVM evidence format
+
+    Parameters
+    ----------
+    input : dict of dict
+        standardized annotation dictionary keyed by locus_tag
+    output : str, default=sys.stdout
+        annotation file in GFF3 format
+    debug : bool, default=False
+        print debug information to stderr
+
+    """
+
+    def _sortDict(d):
+        return (d[1]["contig"], d[1]["location"][0])
+
+    # sort the annotations by contig and start location
+    sGenes = natsorted(iter(input.items()), key=_sortDict)
+    sortedGenes = OrderedDict(sGenes)
+    # then loop through and write GFF3 format
+    if output:
+        if output.endswith(".gz"):
+            copen = gzip.open
+            mopen = "wt"
+        else:
+            copen = open
+            mopen = "w"
+        gffout = copen(output, mopen)
+    else:
+        gffout = sys.stdout
+    # set the feature type
+    feature_type = "EST_match"
+    if alignments == "protein":
+        feature_type = "nucleotide_to_protein_match"
+    gffout.write("##gff-version 3\n")
+    # here we want to write each alignment as separate line
+    for k, v in list(sortedGenes.items()):
+        # print(k, v["mRNA"], v["score"], v["target"])
+        for i in range(0, len(v["mRNA"][0])):
+            gffout.write(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t.\tID={};Target={};\n".format(
+                    v["contig"],
+                    v["source"],
+                    feature_type,
+                    v["mRNA"][0][i][0],
+                    v["mRNA"][0][i][1],
+                    v["score"][i],
+                    v["strand"],
+                    k,
+                    v["target"][i],
+                )
+            )
+    if output:
+        gffout.close()
