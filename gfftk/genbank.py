@@ -7,6 +7,10 @@ from .go import go_term_dict
 from .interlap import InterLap
 import io
 import gzip
+import os
+import subprocess
+import uuid
+import shutil
 
 
 def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
@@ -393,6 +397,28 @@ def findUTRs(cds, mrna, strand):
     return FiveUTR, ThreeUTR
 
 
+def duplicate_coords(cds):
+    # for evaluating list of list of tuples if any are identical
+    # return tuple of identical indices
+    d = set()
+    for i in range(len(cds)):
+        for j in range(i + 1, len(cds)):
+            if cds[i] == cds[j]:
+                d.add(j)
+    return list(d)
+
+
+def drop_alt_coords(info, idxs):
+    # given a dict of a gene model, drop the indexes in the idxs list
+    new_info = {}
+    for k, v in info.items():
+        if isinstance(v, list):
+            new_info[k] = [i for j, i in enumerate(v) if j not in idxs]
+        else:
+            new_info[k] = v
+    return new_info
+
+
 def dict2tbl(
     genesDict,
     scaff2genes,
@@ -454,6 +480,11 @@ def dict2tbl(
                 continue
             # single funannotate standard dictionary
             geneInfo = genesDict.get(genes)
+            # gbk has parsing issues if alt transcript has same CDS, so find and remove
+            dups = duplicate_coords(geneInfo["CDS"])
+            if len(dups) > 0:
+                geneInfo = drop_alt_coords(geneInfo, dups)
+                duplicates += len(dups)
             if not geneInfo["ids"]:
                 continue
             if (
@@ -697,3 +728,149 @@ def dict2tbl(
     if output:
         tbl.close()
     return errors, duplicates, pseudo, nocds
+
+
+def sbt_writer(out):
+    text = """Submit-block ::= {
+  contact {
+    contact {
+      name name {
+        last "Palmer",
+        first "Jonathan"
+      },
+      affil std {
+        affil "Independent Researcher",
+        div "Bioinformatics",
+        city "Palo Alto",
+        sub "CA",
+        country "USA",
+        street "2625 Middlefield Rd",
+        postal-code "94306"
+      }
+    }
+  },
+  cit {
+    authors {
+      names std {
+        {
+          name name {
+            last "Palmer",
+            first "Jonathan",
+            initials "J.M.",
+            suffix ""
+          }
+        }
+      },
+      affil std {
+        affil "Independent Researcher",
+        div "Bioinformatics",
+        city "Palo Alto",
+        sub "CA",
+        country "USA",
+        street "2625 Middlefield Rd",
+        postal-code "94306"
+      }
+    }
+  },
+  subtype new
+}
+
+Seqdesc ::= pub {
+  pub {
+    gen {
+      cit "unpublished",
+      authors {
+        names std {
+          {
+            name name {
+              last "Palmer",
+              first "Jonathan",
+              initials "J.M.",
+              suffix ""
+            }
+          }
+        },
+        affil std {
+          affil "Independent Researcher",
+          div "Bioinformatics",
+          city "Palo Alto",
+          sub "CA",
+          country "USA",
+          street "2625 Middlefield Rd",
+          postal-code "94306"
+        }
+      },
+      title “Genbank file created with GFFtk”
+    }
+  }
+}
+"""
+    with open(out, "w") as outfile:
+        outfile.write(text)
+
+
+def table2asn(
+    tbl,
+    genome,
+    output=False,
+    sbt=False,
+    organism=False,
+    strain=False,
+    tmpdir="/tmp",
+    table=1,
+):
+    # function to run table2asn for whole genome
+    workdir = os.path.join(tmpdir, f"table2asn_{uuid.uuid4()}")
+    if not os.path.isdir(workdir):
+        os.makedirs(workdir)
+    # copy over files and rename
+    g = os.path.join(workdir, "genome.fsa")
+    t = os.path.join(workdir, "genome.tbl")
+    s = os.path.join(workdir, "genome.sbt")
+    outdir = os.path.join(workdir, "sqn")
+    gb = os.path.join(outdir, "genome.gbf")
+    shutil.copyfile(genome, g)
+    shutil.copyfile(tbl, t)
+    if not sbt:
+        sbt_writer(s)
+    else:
+        shutil.copyfile(sbt, s)
+    # now we can run table2asn in genome mode
+    cmd = [
+        "table2asn",
+        "-a",
+        "s",
+        "-c",
+        "fx",
+        "-V",
+        "vb",
+        "-Z",
+        "-r",
+        "-indir",
+        workdir,
+        "-outdir",
+        outdir,
+    ]
+    if table == 1:
+        cmd.append("-euk")
+    modifiers = None
+    if organism and strain:
+        modifiers = f"[organism={organism}] [strain={strain}]"
+    elif organism:
+        modifiers = f"[organism={organism}]"
+    if modifiers:
+        cmd += ["-j", modifiers]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    if os.path.isfile(gb):
+        if output:
+            shutil.copyfile(gb, output)
+        else:
+            with open(gb, "r") as infile:
+                for line in infile:
+                    sys.stdout.write(line)
+        # clean up
+        shutil.rmtree(workdir)
+    else:
+        print(f"table2asn failed: tmpdir={workdir}")
+        raise SystemExit(1)

@@ -17,6 +17,7 @@ import uuid
 import io
 import gzip
 import re
+import types
 
 
 def start_end_gap(seq, coords):
@@ -721,7 +722,11 @@ def _gff_alignment_parser(gff, fasta, Genes):
             if not attr in ["ID", "Target"]:
                 if not attr in errors["unparsed_attributes"]:
                     errors["unparsed_attributes"].append(attr)
-        if feature in ["cDNA_match", "EST_match"]:
+        if feature in ["cDNA_match", "EST_match", "nucleotide_to_protein_match"]:
+            if feature == "nucleotide_to_protein_match":
+                product_name = "protein alignment"
+            else:
+                product_name = "transcript alignment"
             if not ID in Genes:
                 Genes[ID] = {
                     "name": Name,
@@ -740,7 +745,7 @@ def _gff_alignment_parser(gff, fasta, Genes):
                     "EC_number": [[]],
                     "location": (start, end),
                     "contig": contig,
-                    "product": ["transcript alignment"],
+                    "product": [product_name],
                     "source": source,
                     "phase": [[]],
                     "db_xref": [[]],
@@ -1226,9 +1231,71 @@ def _gff_ncbi_parser(gff, fasta, Genes):
     return Genes, errors
 
 
+def validate_models(
+    annotation, fadict, logger=sys.stderr.write, table=1, gap_filter=False
+):
+    if isinstance(logger, types.BuiltinFunctionType):
+        log = logger
+    else:
+        log = logger.info
+    # loop through and make sure CDS and exons are properly sorted and codon_start is correct, translate to protein space
+    # try to use multithreading here, not sure its necessary but new syntax for me with concurrent
+    results = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        for k, v in list(annotation.items()):
+            results.append(
+                executor.submit(
+                    validate_and_translate_models,
+                    k,
+                    v,
+                    fadict,
+                    {"gap_filter": gap_filter, "table": table, "logger": logger},
+                )
+            )
+            # check, update = validate_and_translate_models(v, SeqRecords, gap_filter=gap_filter, table=table, logger=logger)
+    # pass the updates back to the main dictionary
+    for r in results:
+        gene, update = r.result()
+        for key, value in update.items():
+            annotation[gene][key] = value
+        # some assertion statements here to ensure parsing is correct
+        assert_lengths_fail = []
+        for z in [
+            "type",
+            "mRNA",
+            "CDS",
+            "codon_start",
+            "phase",
+            "5UTR",
+            "3UTR",
+            "protein",
+            "transcript",
+            "cds_transcript",
+            "partialStart",
+            "partialStop",
+            "product",
+        ]:
+            if len(annotation[gene]["ids"]) != len(annotation[gene][z]):
+                assert_lengths_fail.append(
+                    (z, annotation[gene][z], len(annotation[gene][z]))
+                )
+        if len(assert_lengths_fail) > 0:
+            log(
+                "ERROR in parsing gene {}\n{}\n{}\n".format(
+                    gene, assert_lengths_fail, annotation[gene]
+                )
+            )
+            raise SystemExit(1)
+    return annotation
+
+
 def validate_and_translate_models(
     k, v, SeqRecords, gap_filter=False, table=1, logger=sys.stderr.write
 ):
+    if isinstance(logger, types.BuiltinFunctionType):
+        log = logger
+    else:
+        log = logger.info
     # take the Genes dictionary and validate gene models
     # loop through and make sure CDS and exons are properly sorted and codon_start is correct, translate to protein space
     # return sorted mRNA, sorted CDS, transcripts, translations, proper phase
@@ -1288,13 +1355,6 @@ def validate_and_translate_models(
                     translateResults = []
                     for y in [1, 2, 3]:
                         protSeq = translate(cdsSeq, v["strand"], y - 1, table=table)
-                        if not protSeq:
-                            logger(
-                                "Translation of {} using {} phase failed\n".format(
-                                    v["ids"][i], y - 1
-                                )
-                            )
-                            sys.exit(1)
                         numStops = protSeq.count("*")
                         if protSeq[-1] == "*":
                             numStops -= 1
@@ -1320,7 +1380,7 @@ def validate_and_translate_models(
                         endTrunc = len(cdsSeq) - codon_start - 1
                         cdsSeq = cdsSeq[0:endTrunc]
                     else:
-                        logger(
+                        log(
                             "ERROR nonsensical strand ({}) for gene {}\n".format(
                                 [v["strand"], v["ids"][i]]
                             )
@@ -1379,6 +1439,31 @@ def _detect_format(gff):
                 _format = "ncbi"
         else:
             break
+    if not isinstance(gff, io.BytesIO):
+        infile.close()
+    return parser, _format
+
+
+def _detect_gtf_format(gff):
+    # this is incomplete search, but sniff if this is an NCBI GFF3 record
+    parser = _gtf_default_parser
+    _format = "default"
+    if isinstance(gff, io.BytesIO):
+        gff.seek(0)
+        infile = gff
+    else:
+        infile = zopen(gff)
+    features = set()
+    for i, line in enumerate(infile):
+        if line.startswith(("\n", "#")):
+            continue
+        cols = line.split("\t")
+        features.add(cols[2])
+        if i == 1000:  # look at first 1000 lines should be sufficient?
+            break
+    if "exon" not in features:
+        parser = _gtf_genemark_parser
+        _format = "genemark"
     if not isinstance(gff, io.BytesIO):
         infile.close()
     return parser, _format
@@ -1477,6 +1562,701 @@ def _longest_orf(annot, fadict, minlen=50, table=1):
     return Clean
 
 
+def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
+    # this is the default general parser to populate the dictionary
+    # idea is to go through line by line and parse the records and add to Genes dictionary
+    errors = {
+        "contig_name": [],
+        "columns": [],
+        "comments": [],
+        "unparsed_attributes": [],
+        "no_parent": [],
+        "no_id": [],
+    }
+    idParent = {}
+    SeqRecords = fasta2headers(fasta)
+    if isinstance(gtf, io.BytesIO):
+        gtf.seek(0)
+        input = gtf
+    else:
+        input = zopen(gtf)
+    for line in input:
+        if line.startswith("\n") or line.startswith("#"):
+            errors["comments"].append(line)
+            continue
+        line = line.rstrip()
+        # skip lines that aren't 9 columns
+        if not line.count("\t") == 8:
+            errors["columns"].append(line)
+            continue
+        (
+            contig,
+            source,
+            feature,
+            start,
+            end,
+            score,
+            strand,
+            phase,
+            attributes,
+        ) = line.split("\t")
+        if feature not in [
+            "gene",
+            "transcript",
+            "mRNA",
+            "exon",
+            "CDS",
+            "start_codon",
+            "stop_codon",
+            "three_prime_utr",
+            "five_prime_utr",
+            "5UTR",
+            "3UTR",
+        ]:
+            continue
+        if not contig in SeqRecords:
+            errors["contig_name"].append(line)
+            continue
+        attributes = unquote(attributes)
+        source = unquote(source)
+        feature = unquote(feature)
+        start = int(start)
+        end = int(end)
+        ID = None
+        Parent = None
+        Name = None
+        Product = None
+        GeneFeature = None
+        info = {}
+        for field in attributes.split(";"):
+            try:
+                k, v = field.rsplit(" ", 1)
+                info[k.strip()] = v.strip().replace('"', "")
+            except (IndexError, ValueError) as E:
+                pass
+        # now we can do add to dictionary these parsed values
+        # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
+        if feature in ["gene"]:
+            ID = info.get("gene_id", None)
+            Name = info.get("gene_name", None)
+            feature_type = info.get("gene_biotype", None)
+            if not ID in Genes:
+                if feature_type and feature_type == "pseudogene":
+                    pseudoFlag = True
+                else:
+                    pseudoFlag = False
+                Genes[ID] = {
+                    "name": Name,
+                    "type": [],
+                    "transcript": [],
+                    "cds_transcript": [],
+                    "protein": [],
+                    "5UTR": [],
+                    "3UTR": [],
+                    "gene_synonym": [],
+                    "codon_start": [],
+                    "ids": [],
+                    "CDS": [],
+                    "mRNA": [],
+                    "strand": strand,
+                    "EC_number": [],
+                    "location": (start, end),
+                    "contig": contig,
+                    "product": [],
+                    "source": source,
+                    "phase": [],
+                    "db_xref": [],
+                    "go_terms": [],
+                    "note": [],
+                    "partialStart": [],
+                    "partialStop": [],
+                    "pseudo": pseudoFlag,
+                }
+            else:
+                if start < Genes[ID]["location"][0]:
+                    Genes[ID]["location"] = (start, Genes[ID]["location"][1])
+                if end > Genes[ID]["location"][1]:
+                    Genes[ID]["location"] = (Genes[ID]["location"][0], end)
+        else:
+            if feature in ["mRNA", "transcript"]:
+                ID = info.get("transcript_id", None)
+                Parent = info.get("gene_id", None)
+                Name = info.get("transcript_name", None)
+                feature_type = info.get("transcript_biotype", None)
+                if feature_type and feature_type == "protein_coding":
+                    Product = "hypothetical protein"
+                    display_feature = "mRNA"
+                elif feature_type and feature_type in ["ncRNA", "tRNA"]:
+                    display_feature = feature_type
+                    Product = "hypothetical {}".format(feature_type)
+                else:
+                    display_feature = feature
+                if not Parent in Genes:
+                    Genes[Parent] = {
+                        "name": Name,
+                        "type": [display_feature],
+                        "transcript": [],
+                        "cds_transcript": [],
+                        "protein": [],
+                        "5UTR": [[]],
+                        "3UTR": [[]],
+                        "codon_start": [[]],
+                        "ids": [ID],
+                        "CDS": [[]],
+                        "mRNA": [[]],
+                        "strand": strand,
+                        "location": (start, end),
+                        "contig": contig,
+                        "product": [Product],
+                        "source": source,
+                        "phase": [[]],
+                        "gene_synonym": [],
+                        "db_xref": [],
+                        "go_terms": [],
+                        "EC_number": [],
+                        "note": [],
+                        "partialStart": [False],
+                        "partialStop": [False],
+                        "pseudo": False,
+                    }
+                else:
+                    Genes[Parent]["ids"].append(ID)
+                    Genes[Parent]["mRNA"].append([])
+                    Genes[Parent]["CDS"].append([])
+                    Genes[Parent]["phase"].append([])
+                    Genes[Parent]["5UTR"].append([])
+                    Genes[Parent]["3UTR"].append([])
+                    Genes[Parent]["codon_start"].append([])
+                    Genes[Parent]["partialStart"].append(False)
+                    Genes[Parent]["partialStop"].append(False)
+                    Genes[Parent]["product"].append(Product)
+                    Genes[Parent]["db_xref"].append([])
+                    Genes[Parent]["EC_number"].append([])
+                    Genes[Parent]["gene_synonym"] += []
+                    Genes[Parent]["go_terms"].append([])
+                    Genes[Parent]["note"].append([])
+                    Genes[Parent]["type"].append(feature)
+                    # double check mRNA features are contained in gene coordinates
+                    if start < Genes[Parent]["location"][0]:
+                        Genes[Parent]["location"] = (
+                            start,
+                            Genes[Parent]["location"][1],
+                        )
+                    if end > Genes[Parent]["location"][1]:
+                        Genes[Parent]["location"] = (
+                            Genes[Parent]["location"][0],
+                            end,
+                        )
+                if not ID in idParent:
+                    idParent[ID] = Parent
+            # treat exon features
+            elif feature == "exon":
+                Parent = info.get("transcript_id", None)
+                if "," in Parent:
+                    parents = Parent.split(",")
+                else:
+                    parents = [Parent]
+                for p in parents:
+                    if p in idParent:
+                        GeneFeature = idParent.get(p)
+                    if GeneFeature:
+                        if not GeneFeature in Genes:
+                            Genes[GeneFeature] = {
+                                "name": Name,
+                                "type": [],
+                                "transcript": [],
+                                "cds_transcript": [],
+                                "protein": [],
+                                "5UTR": [[]],
+                                "3UTR": [[]],
+                                "codon_start": [[]],
+                                "ids": [p],
+                                "CDS": [],
+                                "mRNA": [[(start, end)]],
+                                "strand": strand,
+                                "location": None,
+                                "contig": contig,
+                                "product": [],
+                                "source": source,
+                                "phase": [[]],
+                                "db_xref": [],
+                                "go_terms": [],
+                                "EC_number": [],
+                                "note": [],
+                                "partialStart": [False],
+                                "partialStop": [False],
+                                "pseudo": False,
+                                "gene_synonym": [],
+                            }
+                        else:
+                            # determine which transcript this is get index from id
+                            i = Genes[GeneFeature]["ids"].index(p)
+                            Genes[GeneFeature]["mRNA"][i].append((start, end))
+            # treat codings sequence features
+            elif feature == "CDS":
+                ID = info.get("protein_id", None)
+                Parent = info.get("transcript_id", None)
+                if "," in Parent:
+                    parents = Parent.split(",")
+                else:
+                    parents = [Parent]
+                for p in parents:
+                    if p in idParent:
+                        GeneFeature = idParent.get(p)
+                    if GeneFeature:
+                        if not GeneFeature in Genes:
+                            Genes[GeneFeature] = {
+                                "name": Name,
+                                "type": [],
+                                "transcript": [],
+                                "cds_transcript": [],
+                                "protein": [],
+                                "5UTR": [[]],
+                                "3UTR": [[]],
+                                "codon_start": [[]],
+                                "ids": [p],
+                                "CDS": [[(start, end)]],
+                                "mRNA": [],
+                                "strand": strand,
+                                "location": None,
+                                "contig": contig,
+                                "product": [],
+                                "source": source,
+                                "phase": [[int(phase)]],
+                                "db_xref": [],
+                                "go_terms": [],
+                                "EC_number": [],
+                                "note": [],
+                                "partialStart": [False],
+                                "partialStop": [False],
+                                "pseudo": False,
+                                "gene_synonym": [],
+                            }
+                        else:
+                            # determine which transcript this is get index from id
+                            i = Genes[GeneFeature]["ids"].index(p)
+                            Genes[GeneFeature]["CDS"][i].append((start, end))
+                            # add phase
+                            try:
+                                Genes[GeneFeature]["phase"][i].append(int(phase))
+                            except ValueError:
+                                Genes[GeneFeature]["phase"][i].append("?")
+            # treat 5' UTRs
+            elif feature == "five_prime_utr" or feature == "5UTR":
+                Parent = info.get("transcript_id", None)
+                if "," in Parent:
+                    parents = Parent.split(",")
+                else:
+                    parents = [Parent]
+                for p in parents:
+                    if p in idParent:
+                        GeneFeature = idParent.get(p)
+                    if GeneFeature:
+                        if not GeneFeature in Genes:
+                            Genes[GeneFeature] = {
+                                "name": Name,
+                                "type": [],
+                                "transcript": [],
+                                "cds_transcript": [],
+                                "protein": [],
+                                "5UTR": [[(start, end)]],
+                                "3UTR": [[]],
+                                "codon_start": [[]],
+                                "ids": [p],
+                                "CDS": [],
+                                "mRNA": [[(start, end)]],
+                                "strand": strand,
+                                "location": None,
+                                "contig": contig,
+                                "product": [],
+                                "source": source,
+                                "phase": [[]],
+                                "db_xref": [],
+                                "go_terms": [],
+                                "EC_number": [],
+                                "note": [],
+                                "partialStart": [False],
+                                "partialStop": [False],
+                                "pseudo": False,
+                                "gene_synonym": [],
+                            }
+                        else:
+                            # determine which transcript this is get index from id
+                            i = Genes[GeneFeature]["ids"].index(p)
+                            Genes[GeneFeature]["5UTR"][i].append((start, end))
+            # treat 3' UTR
+            elif feature == "three_prime_utr" or feature == "3UTR":
+                Parent = info.get("transcript_id", None)
+                if "," in Parent:
+                    parents = Parent.split(",")
+                else:
+                    parents = [Parent]
+                for p in parents:
+                    if p in idParent:
+                        GeneFeature = idParent.get(p)
+                    if GeneFeature:
+                        if not GeneFeature in Genes:
+                            Genes[GeneFeature] = {
+                                "name": Name,
+                                "type": [],
+                                "transcript": [],
+                                "cds_transcript": [],
+                                "protein": [],
+                                "5UTR": [[]],
+                                "3UTR": [[(start, end)]],
+                                "codon_start": [[]],
+                                "ids": [p],
+                                "CDS": [],
+                                "mRNA": [[(start, end)]],
+                                "strand": strand,
+                                "location": None,
+                                "contig": contig,
+                                "product": [],
+                                "source": source,
+                                "phase": [[]],
+                                "db_xref": [],
+                                "go_terms": [],
+                                "EC_number": [],
+                                "note": [],
+                                "partialStart": [False],
+                                "partialStop": [False],
+                                "pseudo": False,
+                                "gene_synonym": [],
+                            }
+                        else:
+                            # determine which transcript this is get index from id
+                            i = Genes[GeneFeature]["ids"].index(p)
+                            Genes[GeneFeature]["3UTR"][i].append((start, end))
+                # note we are ignore start_codon and stop_codon as its redudant and not needed
+    if not isinstance(gtf, io.BytesIO):
+        input.close()
+    return Genes, errors
+
+
+def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
+    # this is the default general parser to populate the dictionary
+    # idea is to go through line by line and parse the records and add to Genes dictionary
+    errors = {
+        "contig_name": [],
+        "columns": [],
+        "comments": [],
+        "unparsed_attributes": [],
+        "no_parent": [],
+        "no_id": [],
+    }
+    idParent = {}
+    SeqRecords = fasta2headers(fasta)
+    if isinstance(gtf, io.BytesIO):
+        gtf.seek(0)
+        input = gtf
+    else:
+        input = zopen(gtf)
+    for line in input:
+        if line.startswith("\n") or line.startswith("#"):
+            errors["comments"].append(line)
+            continue
+        line = line.rstrip()
+        # skip lines that aren't 9 columns
+        if not line.count("\t") == 8:
+            errors["columns"].append(line)
+            continue
+        (
+            contig,
+            source,
+            feature,
+            start,
+            end,
+            score,
+            strand,
+            phase,
+            attributes,
+        ) = line.split("\t")
+        if feature not in [
+            "gene",
+            "transcript",
+            "mRNA",
+            "exon",
+            "CDS",
+            "start_codon",
+            "stop_codon",
+            "three_prime_utr",
+            "five_prime_utr",
+            "5UTR",
+            "3UTR",
+        ]:
+            continue
+        if not contig in SeqRecords:
+            errors["contig_name"].append(line)
+            continue
+        attributes = unquote(attributes)
+        source = unquote(source)
+        if source == "GeneMark.hmm3":
+            source = "genemark"
+        feature = unquote(feature)
+        start = int(start)
+        end = int(end)
+        ID = None
+        Parent = None
+        Name = None
+        Product = None
+        GeneFeature = None
+        info = {}
+        for field in attributes.split(";"):
+            try:
+                k, v = field.rsplit(" ", 1)
+                info[k.strip()] = v.strip().replace('"', "")
+            except (IndexError, ValueError) as E:
+                pass
+        # now we can do add to dictionary these parsed values
+        # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
+        if feature in ["gene"]:
+            ID = info.get("gene_id", None)
+            Name = info.get("gene_name", None)
+            feature_type = info.get("gene_biotype", None)
+            if not ID in Genes:
+                if feature_type and feature_type == "pseudogene":
+                    pseudoFlag = True
+                else:
+                    pseudoFlag = False
+                Genes[ID] = {
+                    "name": Name,
+                    "type": [],
+                    "transcript": [],
+                    "cds_transcript": [],
+                    "protein": [],
+                    "5UTR": [],
+                    "3UTR": [],
+                    "gene_synonym": [],
+                    "codon_start": [],
+                    "ids": [],
+                    "CDS": [],
+                    "mRNA": [],
+                    "strand": strand,
+                    "EC_number": [],
+                    "location": (start, end),
+                    "contig": contig,
+                    "product": [],
+                    "source": source,
+                    "phase": [],
+                    "db_xref": [],
+                    "go_terms": [],
+                    "note": [],
+                    "partialStart": [],
+                    "partialStop": [],
+                    "pseudo": pseudoFlag,
+                }
+            else:
+                if start < Genes[ID]["location"][0]:
+                    Genes[ID]["location"] = (start, Genes[ID]["location"][1])
+                if end > Genes[ID]["location"][1]:
+                    Genes[ID]["location"] = (Genes[ID]["location"][0], end)
+        else:
+            if feature in ["mRNA", "transcript"]:
+                ID = info.get("transcript_id", None)
+                Parent = info.get("gene_id", None)
+                Name = info.get("transcript_name", None)
+                feature_type = info.get("transcript_biotype", None)
+                Product = "hypothetical protein"
+                display_feature = "mRNA"
+                if not Parent in Genes:
+                    Genes[Parent] = {
+                        "name": Name,
+                        "type": [display_feature],
+                        "transcript": [],
+                        "cds_transcript": [],
+                        "protein": [],
+                        "5UTR": [[]],
+                        "3UTR": [[]],
+                        "codon_start": [[]],
+                        "ids": [ID],
+                        "CDS": [[]],
+                        "mRNA": [[]],
+                        "strand": strand,
+                        "location": (start, end),
+                        "contig": contig,
+                        "product": [Product],
+                        "source": source,
+                        "phase": [[]],
+                        "gene_synonym": [],
+                        "db_xref": [],
+                        "go_terms": [],
+                        "EC_number": [],
+                        "note": [],
+                        "partialStart": [False],
+                        "partialStop": [False],
+                        "pseudo": False,
+                    }
+                else:
+                    Genes[Parent]["ids"].append(ID)
+                    Genes[Parent]["mRNA"].append([])
+                    Genes[Parent]["CDS"].append([])
+                    Genes[Parent]["phase"].append([])
+                    Genes[Parent]["5UTR"].append([])
+                    Genes[Parent]["3UTR"].append([])
+                    Genes[Parent]["codon_start"].append([])
+                    Genes[Parent]["partialStart"].append(False)
+                    Genes[Parent]["partialStop"].append(False)
+                    Genes[Parent]["product"].append(Product)
+                    Genes[Parent]["db_xref"].append([])
+                    Genes[Parent]["EC_number"].append([])
+                    Genes[Parent]["gene_synonym"] += []
+                    Genes[Parent]["go_terms"].append([])
+                    Genes[Parent]["note"].append([])
+                    Genes[Parent]["type"].append(feature)
+                    # double check mRNA features are contained in gene coordinates
+                    if start < Genes[Parent]["location"][0]:
+                        Genes[Parent]["location"] = (
+                            start,
+                            Genes[Parent]["location"][1],
+                        )
+                    if end > Genes[Parent]["location"][1]:
+                        Genes[Parent]["location"] = (
+                            Genes[Parent]["location"][0],
+                            end,
+                        )
+                if not ID in idParent:
+                    idParent[ID] = Parent
+            # treat codings sequence features
+            elif feature == "CDS":
+                ID = info.get("protein_id", None)
+                Parent = info.get("transcript_id", None)
+                if "," in Parent:
+                    parents = Parent.split(",")
+                else:
+                    parents = [Parent]
+                for p in parents:
+                    if p in idParent:
+                        GeneFeature = idParent.get(p)
+                    if GeneFeature:
+                        if not GeneFeature in Genes:
+                            Genes[GeneFeature] = {
+                                "name": Name,
+                                "type": [],
+                                "transcript": [],
+                                "cds_transcript": [],
+                                "protein": [],
+                                "5UTR": [[]],
+                                "3UTR": [[]],
+                                "codon_start": [[]],
+                                "ids": [p],
+                                "CDS": [[(start, end)]],
+                                "mRNA": [],
+                                "strand": strand,
+                                "location": None,
+                                "contig": contig,
+                                "product": [],
+                                "source": source,
+                                "phase": [[int(phase)]],
+                                "db_xref": [],
+                                "go_terms": [],
+                                "EC_number": [],
+                                "note": [],
+                                "partialStart": [False],
+                                "partialStop": [False],
+                                "pseudo": False,
+                                "gene_synonym": [],
+                            }
+                        else:
+                            # determine which transcript this is get index from id
+                            i = Genes[GeneFeature]["ids"].index(p)
+                            Genes[GeneFeature]["CDS"][i].append((start, end))
+                            Genes[GeneFeature]["mRNA"][i].append((start, end))
+                            # add phase
+                            try:
+                                Genes[GeneFeature]["phase"][i].append(int(phase))
+                            except ValueError:
+                                Genes[GeneFeature]["phase"][i].append("?")
+    if not isinstance(gtf, io.BytesIO):
+        input.close()
+    return Genes, errors
+
+
+def gtf2dict(
+    gtf,
+    fasta,
+    annotation=False,
+    table=1,
+    debug=False,
+    gap_filter=False,
+    gtf_format="auto",
+    logger=sys.stderr.write,
+):
+    """Convert GTF and FASTA to standardized GFFtk dictionary format.
+
+    Annotation file in GTF format and genome FASTA file are parsed. The result is a dictionary that is keyed
+    by locus_tag (gene name) and the value is a nested dictionary containing feature information.
+
+    Parameters
+    ----------
+    gtf : filename : str
+        annotation text file in GTF format
+    fasta : filename : str
+        genome text file in FASTA format
+    annotation : dict of str
+        existing annotation dictionary
+    table : int, default=1
+        codon table [1]
+    debug : bool, default=False
+        print debug information to stderr
+    gap_filter : bool, default=False
+        remove gene models that span gaps in sequence
+    logger : handle, default=sys.stderr.write
+        where to log messages to
+
+    Returns
+    -------
+    annotation : dict of dict
+        standardized annotation dictionary (OrderedDict) keyed by locus_tag
+
+    """
+
+    # some logic here to predict format eventually
+
+    if not annotation:
+        annotation = {}
+    # parser format
+    if gtf_format == "auto":
+        gtf_parser, _format = _detect_gtf_format(gtf)
+        _format = "default"
+    elif gtf_format == "genemark":
+        gtf_parser = _gtf_genemark_parser
+        _format = "genemark"
+    annotation, parse_errors = gtf_parser(gtf, fasta, annotation, gtf_format=_format)
+    SeqRecords = fasta2dict(fasta)
+    if debug:
+        for err, err_v in parse_errors.items():
+            if len(err_v) > 0:  # then tell user
+                if err == "comments":
+                    continue
+                if err == "unparsed_attributes":
+                    print_errors = list(err_v)
+                    logger(
+                        "Found {} attribute keys that were not parsed: {}\n".format(
+                            len(err_v), print_errors
+                        )
+                    )
+                else:
+                    logger(
+                        "Found {} errors in {}: showing 10 randomly generated lines/records\n".format(
+                            len(err_v), err
+                        )
+                    )
+                    print_errors = random.sample(err_v, 10)
+                    logger("{}\n".format("\n".join(print_errors)))
+    if debug:
+        logger(
+            "Parsed {} contigs containing {} gene models\n".format(
+                len(SeqRecords), len(annotation)
+            )
+        )
+    # loop through and make sure CDS and exons are properly sorted and codon_start is correct, translate to protein space
+    annotation = validate_models(
+        annotation, SeqRecords, logger=logger, table=table, gap_filter=gap_filter
+    )
+
+    return annotation
+
+
 def gff2dict(
     gff,
     fasta,
@@ -1566,53 +2346,10 @@ def gff2dict(
             )
         )
     # loop through and make sure CDS and exons are properly sorted and codon_start is correct, translate to protein space
-    # try to use multithreading here, not sure its necessary but new syntax for me with concurrent
-    results = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        for k, v in list(annotation.items()):
-            results.append(
-                executor.submit(
-                    validate_and_translate_models,
-                    k,
-                    v,
-                    SeqRecords,
-                    {"gap_filter": gap_filter, "table": table, "logger": logger},
-                )
-            )
-            # check, update = validate_and_translate_models(v, SeqRecords, gap_filter=gap_filter, table=table, logger=logger)
-    # pass the updates back to the main dictionary
-    for r in results:
-        gene, update = r.result()
-        for key, value in update.items():
-            annotation[gene][key] = value
-        # some assertion statements here to ensure parsing is correct
-        assert_lengths_fail = []
-        for z in [
-            "type",
-            "mRNA",
-            "CDS",
-            "codon_start",
-            "phase",
-            "5UTR",
-            "3UTR",
-            "protein",
-            "transcript",
-            "cds_transcript",
-            "partialStart",
-            "partialStop",
-            "product",
-        ]:
-            if len(annotation[gene]["ids"]) != len(annotation[gene][z]):
-                assert_lengths_fail.append(
-                    (z, annotation[gene][z], len(annotation[gene][z]))
-                )
-        if len(assert_lengths_fail) > 0:
-            logger(
-                "ERROR in parsing gene {}\n{}\n{}\n".format(
-                    gene, assert_lengths_fail, annotation[gene]
-                )
-            )
-            sys.exit(1)
+    annotation = validate_models(
+        annotation, SeqRecords, logger=logger, table=table, gap_filter=gap_filter
+    )
+
     return annotation
 
 
@@ -1626,7 +2363,7 @@ def simplifyGO(inputList):
     return simple
 
 
-def dict2gff3(input, output=False, debug=False):
+def dict2gff3(input, output=False, debug=False, source=False, newline=False):
     """Convert GFFtk standardized annotation dictionary to GFF3 file.
 
     Annotation dictionary generated by gff2dict or tbl2dict passed as input. This function then write to GFF3 format
@@ -1665,12 +2402,17 @@ def dict2gff3(input, output=False, debug=False):
         if "pseudo" in v:
             if v["pseudo"]:
                 genefeature = "pseudogene"
+        # option to update/modify/change the source
+        if source:
+            new_source = source
+        else:
+            new_source = v["source"]
         if v["name"]:
             if "gene_synonym" in v and len(v["gene_synonym"]) > 0:
                 gffout.write(
                     "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Name={:};Alias={:};\n".format(
                         v["contig"],
-                        v["source"],
+                        new_source,
                         genefeature,
                         v["location"][0],
                         v["location"][1],
@@ -1684,7 +2426,7 @@ def dict2gff3(input, output=False, debug=False):
                 gffout.write(
                     "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Name={:};\n".format(
                         v["contig"],
-                        v["source"],
+                        new_source,
                         genefeature,
                         v["location"][0],
                         v["location"][1],
@@ -1698,7 +2440,7 @@ def dict2gff3(input, output=False, debug=False):
                 gffout.write(
                     "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Alias={:};\n".format(
                         v["contig"],
-                        v["source"],
+                        new_source,
                         genefeature,
                         v["location"][0],
                         v["location"][1],
@@ -1711,7 +2453,7 @@ def dict2gff3(input, output=False, debug=False):
                 gffout.write(
                     "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};\n".format(
                         v["contig"],
-                        v["source"],
+                        new_source,
                         genefeature,
                         v["location"][0],
                         v["location"][1],
@@ -1786,7 +2528,7 @@ def dict2gff3(input, output=False, debug=False):
             gffout.write(
                 "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Parent={:};product={:};{:}\n".format(
                     v["contig"],
-                    v["source"],
+                    new_source,
                     v["type"][i],
                     v["location"][0],
                     v["location"][1],
@@ -1807,7 +2549,7 @@ def dict2gff3(input, output=False, debug=False):
                             gffout.write(
                                 "{:}\t{:}\tfive_prime_UTR\t{:}\t{:}\t.\t{:}\t.\tID={:}.utr5p{:};Parent={:};\n".format(
                                     v["contig"],
-                                    v["source"],
+                                    new_source,
                                     sortedFive[z][0],
                                     sortedFive[z][1],
                                     v["strand"],
@@ -1823,7 +2565,7 @@ def dict2gff3(input, output=False, debug=False):
                     gffout.write(
                         "{:}\t{:}\texon\t{:}\t{:}\t.\t{:}\t.\tID={:}.exon{:};Parent={:};\n".format(
                             v["contig"],
-                            v["source"],
+                            new_source,
                             sortedExons[x][0],
                             sortedExons[x][1],
                             v["strand"],
@@ -1841,7 +2583,7 @@ def dict2gff3(input, output=False, debug=False):
                             gffout.write(
                                 "{:}\t{:}\tthree_prime_UTR\t{:}\t{:}\t.\t{:}\t.\tID={:}.utr3p{:};Parent={:};\n".format(
                                     v["contig"],
-                                    v["source"],
+                                    new_source,
                                     sortedThree[z][0],
                                     sortedThree[z][1],
                                     v["strand"],
@@ -1862,7 +2604,7 @@ def dict2gff3(input, output=False, debug=False):
                     gffout.write(
                         "{:}\t{:}\tCDS\t{:}\t{:}\t.\t{:}\t{:}\tID={:}.cds;Parent={:};\n".format(
                             v["contig"],
-                            v["source"],
+                            new_source,
                             sortedCDS[y][0],
                             sortedCDS[y][1],
                             v["strand"],
@@ -1877,11 +2619,13 @@ def dict2gff3(input, output=False, debug=False):
                     ) % 3
                     if current_phase == 3:
                         current_phase = 0
+        if newline:
+            gffout.write("\n")
     if output:
         gffout.close()
 
 
-def dict2gtf(input, output=False):
+def dict2gtf(input, output=False, source=False):
     """Convert GFFtk standardized annotation dictionary to GTF file.
 
     Annotation dictionary generated by gff2dict or tbl2dict passed as input. This function
@@ -1916,6 +2660,11 @@ def dict2gtf(input, output=False):
         for i in range(0, len(v["ids"])):
             if len(v["CDS"][i]) < 1:
                 continue
+            # option to change source
+            if source:
+                new_source = source
+            else:
+                new_source = v["source"]
             # create attributes string
             attributes = 'gene_id "{:}"; transcript_id "{:}";'.format(k, v["ids"][i])
             if len(v["5UTR"][i]) > 0:
@@ -1923,7 +2672,7 @@ def dict2gtf(input, output=False):
                     gtfout.write(
                         "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                             v["contig"],
-                            v["source"],
+                            new_source,
                             "5UTR",
                             utr[0],
                             utr[1],
@@ -1941,7 +2690,7 @@ def dict2gtf(input, output=False):
                 gtfout.write(
                     "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                         v["contig"],
-                        v["source"],
+                        new_source,
                         "start_codon",
                         startCodon[0],
                         startCodon[1],
@@ -1959,7 +2708,7 @@ def dict2gtf(input, output=False):
                     gtfout.write(
                         "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                             v["contig"],
-                            v["source"],
+                            new_source,
                             "CDS",
                             cds[0],
                             cds[1],
@@ -1980,7 +2729,7 @@ def dict2gtf(input, output=False):
                             gtfout.write(
                                 "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                                     v["contig"],
-                                    v["source"],
+                                    new_source,
                                     "CDS",
                                     cds[0],
                                     cds[1] - 3,
@@ -1993,7 +2742,7 @@ def dict2gtf(input, output=False):
                             gtfout.write(
                                 "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                                     v["contig"],
-                                    v["source"],
+                                    new_source,
                                     "stop_codon",
                                     cds[1] - 2,
                                     cds[1],
@@ -2008,7 +2757,7 @@ def dict2gtf(input, output=False):
                                 gtfout.write(
                                     "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                                         v["contig"],
-                                        v["source"],
+                                        new_source,
                                         "CDS",
                                         cds[0],
                                         cds[1],
@@ -2020,13 +2769,13 @@ def dict2gtf(input, output=False):
                                 )
                             except IndexError:
                                 print(k, v)
-                                sys.exit(1)
+                                raise SystemExit(1)
                     else:
                         if x == len(v["CDS"][i]) - 1:  # this is last one
                             gtfout.write(
                                 "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                                     v["contig"],
-                                    v["source"],
+                                    new_source,
                                     "CDS",
                                     cds[0] + 3,
                                     cds[1],
@@ -2039,7 +2788,7 @@ def dict2gtf(input, output=False):
                             gtfout.write(
                                 "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                                     v["contig"],
-                                    v["source"],
+                                    new_source,
                                     "stop_codon",
                                     cds[0],
                                     cds[0] + 2,
@@ -2053,7 +2802,7 @@ def dict2gtf(input, output=False):
                             gtfout.write(
                                 "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                                     v["contig"],
-                                    v["source"],
+                                    new_source,
                                     "CDS",
                                     cds[0],
                                     cds[1],
@@ -2068,7 +2817,7 @@ def dict2gtf(input, output=False):
                     gtfout.write(
                         "{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\t{:}\n".format(
                             v["contig"],
-                            v["source"],
+                            new_source,
                             "3UTR",
                             utr[0],
                             utr[1],
@@ -2084,7 +2833,14 @@ def dict2gtf(input, output=False):
         gtfout.close()
 
 
-def dict2gff3alignments(input, output=False, debug=False, alignments="transcript"):
+def dict2gff3alignments(
+    input,
+    output=False,
+    debug=False,
+    alignments="transcript",
+    source=False,
+    newline=False,
+):
     """Convert GFFtk standardized annotation dictionary to GFF3 alignments file.
 
     Annotation dictionary generated by gff2dict or tbl2dict passed as input. Output format is GFF3-alignment, aka EVM evidence format
@@ -2125,11 +2881,15 @@ def dict2gff3alignments(input, output=False, debug=False, alignments="transcript
     # here we want to write each alignment as separate line
     for k, v in list(sortedGenes.items()):
         # print(k, v["mRNA"], v["score"], v["target"])
+        if source:
+            new_source = source
+        else:
+            new_source = v["source"]
         for i in range(0, len(v["mRNA"][0])):
             gffout.write(
                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t.\tID={};Target={};\n".format(
                     v["contig"],
-                    v["source"],
+                    new_source,
                     feature_type,
                     v["mRNA"][0][i][0],
                     v["mRNA"][0][i][1],
@@ -2139,5 +2899,7 @@ def dict2gff3alignments(input, output=False, debug=False, alignments="transcript
                     v["target"][i],
                 )
             )
+        if newline:
+            gffout.write("\n")
     if output:
         gffout.close()

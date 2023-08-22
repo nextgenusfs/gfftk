@@ -1,6 +1,6 @@
 import sys
 import os
-from collections import defaultdict, Counter, OrderedDict
+from collections import defaultdict, Counter, OrderedDict, ChainMap
 from .interlap import InterLap
 from .utils import zopen, check_inputs
 from .gff import gff2dict
@@ -25,14 +25,42 @@ def consensus(args):
     check_inputs(
         [args.fasta] + args.genes + args.proteins + args.transcripts + args.repeats
     )
+    _ = generate_consensus(
+        args.fasta,
+        args.genes,
+        args.proteins,
+        args.transcripts,
+        args.weights,
+        args.out,
+        debug=args.debug,
+        minscore=args.minscore,
+        repeats=args.repeats,
+        repeat_overlap=args.repeat_overlap,
+        log=log,
+    )
+
+
+def generate_consensus(
+    fasta,
+    genes,
+    proteins,
+    transcripts,
+    weights,
+    out,
+    debug=False,
+    minscore=False,
+    repeats=False,
+    repeat_overlap=90,
+    log=sys.stderr.write,
+):
     log("GFFtk consensus will generate the best gene model at each locus")
-    if args.debug:
-        args.debug = args.out + ".all_gene_models.gff3"
-        if os.path.isfile(args.debug):
-            os.remove(args.debug)
-    if args.weights:
+    if debug:
+        debug = out + ".all_gene_models.gff3"
+        if os.path.isfile(debug):
+            os.remove(debug)
+    if weights:
         WEIGHTS = {}
-        for x in args.weights:
+        for x in weights:
             if ":" in x:
                 source, w = x.split(":", 1)
             else:
@@ -42,7 +70,7 @@ def consensus(args):
     else:
         WEIGHTS = {}
     log("Parsing GFF3 files and clustering data into strand specific loci")
-    data = parse_data(args.fasta, args.genes, args.proteins, args.transcripts)
+    data = parse_data(fasta, genes, proteins, transcripts, log=log)
     order, n_evidence = calculate_source_order(data)
     if n_evidence > 0:
         log(
@@ -57,8 +85,8 @@ def consensus(args):
         )
     consensus = {}
     counter = 1
-    if args.debug:
-        locus_bed = zopen(args.out + ".loci.bed", mode="w")
+    if debug:
+        locus_bed = zopen(out + ".loci.bed", mode="w")
     else:
         locus_bed = open(os.devnull, "w")
     for contig, obj in data.items():
@@ -77,7 +105,7 @@ def consensus(args):
                     locus,
                     weights=WEIGHTS,
                     order=order,
-                    debug=args.debug,
+                    debug=debug,
                 )
                 if not keep:
                     continue
@@ -95,10 +123,10 @@ def consensus(args):
                 counter += 1
     locus_bed.close()
     # check for minimum score
-    if not args.minscore:
+    if not minscore:
         score_threshold = auto_score_threshold(WEIGHTS, order)
     else:
-        score_threshold = int(args.score_threshold)
+        score_threshold = int(minscore)
     log("Setting minimum gene model score to {}".format(score_threshold))
     sources = {}
     filtered = {}
@@ -117,9 +145,9 @@ def consensus(args):
                 filtered[m] = v
 
     # now we can filter models in repeat regions
-    if args.repeats:
+    if repeats:
         final, dropped_n = filter_models_repeats(
-            args.fasta, args.repeats, filtered, filter_threshold=args.repeat_overlap
+            fasta, repeats, filtered, filter_threshold=repeat_overlap
         )
         log("{} gene models were dropped due to repeat overlap".format(dropped_n))
     else:
@@ -130,8 +158,9 @@ def consensus(args):
         )
     )
     # finally we can write to GFF3 format
-    gff_writer(final, args.out)
-    log("GFFtk consensus is finished: {}".format(args.out))
+    gff_writer(final, out)
+    log("GFFtk consensus is finished: {}".format(out))
+    return final
 
 
 def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90):
@@ -241,7 +270,7 @@ def cluster_interlap(obj):
             for x in hits:
                 seen.add(x[2])
             # sub cluster for unique sources
-            cleaned = [hits] #sub_cluster(hits)
+            cleaned = [hits]  # sub_cluster(hits)
             for r in cleaned:
                 starts = [x[0] for x in r]
                 ends = [x[1] for x in r]
@@ -450,27 +479,47 @@ def add_evidence(loci, evidence, source="proteins"):
                 loci[k]["-"][z][source] = cleaned
 
 
-def parse_data(genome, gene, protein, transcript):
+def parse_data(genome, gene, protein, transcript, log=sys.stderr.write):
     # parse the input data and build locus data structure
     # all inputs should be lists to support multiple inputs
-    Genes = {}
+    Preds = []
+    n_models = 0
+    sources = {"predictions": set(), "evidence": set()}
     for g in gene:
-        Genes = gff2dict(os.path.abspath(g), genome, annotation=Genes)
+        parsed_genes = gff2dict(os.path.abspath(g), genome)
+        Preds.append(parsed_genes)
+        n_models += len(parsed_genes)
+        for k, v in parsed_genes.items():
+            sources["predictions"].add(v["source"])
     Proteins = {}
     if protein:
         for p in protein:
             Proteins = gffevidence2dict(os.path.abspath(p), Proteins)
+            for k, v in Proteins.items():
+                sources["evidence"].add(v["source"])
     Transcripts = {}
     if transcript:
         for t in transcript:
             Transcripts = gffevidence2dict(os.path.abspath(t), Transcripts)
+            for k, v in Transcripts.items():
+                sources["evidence"].add(v["source"])
+    # merge parsed predictions
+    log(f"Merging gene predictions from {len(Preds)} source files\n{sources}")
+    Genes = dict(ChainMap(*Preds))
     # now build loci from gene models
     loci, n_loci, pseudo = get_loci(Genes)
+    pbs = {}
+    for x in pseudo:
+        if x[1]["source"] not in pbs:
+            pbs[x[1]["source"]] = 1
+        else:
+            pbs[x[1]["source"]] += 1
     log(
-        "Parsed {} gene models into {} loci. Dropped {} genes models that were pseudo [labled as such or internal stop codons]".format(
-            len(Genes), n_loci, len(pseudo)
+        "Parsed {} gene models into {} loci. Dropped {} genes models that were pseudo [labled as such or internal stop codons]\n{}\n{}".format(
+            n_models, n_loci, len(pseudo), pbs, ", ".join([x[0] for x in pseudo[:10]])
         )
     )
+
     # add some evidence
     if len(Proteins) > 0:
         add_evidence(loci, Proteins, source="proteins")
@@ -668,10 +717,11 @@ def best_model(
     # check if could be multiple
     sources = [x[1] for x in locus["genes"]]
     s, n = Counter(sources).most_common(1)[0]
-    if n > 1:  # could be multiple genes here
-        print('---------------')
-        print(s, n)
-        print('Multiple sources one locus: {}'.format(locus["genes"]))
+    # more work needed here, we need logic to split a locus, ie one large gene versus two shorter ones? comment out for now
+    # if n > 1:  # could be multiple genes here
+    #    print("---------------")
+    #    print(s, n)
+    #    print("Multiple sources one locus: {}".format(locus["genes"]))
     # get evidence scores
     evidence_scores = score_by_evidence(locus)
     # get aed scores
@@ -714,8 +764,8 @@ def best_model(
     if debug:
         debug_gff_writer(debug, contig, strand, best_result)
     best_result_filtered = [x for x in best_result if x[1]["check"] == True]
-    if n > 1:
-        print(best_result_filtered)
+    # if n > 1:
+    # print(best_result_filtered)
     # check if we need to break any ties
     if len(best_result_filtered) > 0:
         best_score = best_result_filtered[0][1]["score"]
@@ -917,32 +967,56 @@ def getAED(query, reference):
         return 0.000
     # make sure sorted
     rLen = _length(reference)
+    qLen = _length(query)
     refInterlap = InterLap(reference)
-    QueryOverlap = 0
-    qLen = 0
+    FPbases = 0
+    FNbases = 0
+    TPbases = 0
+    refSeen = []
+    refPerfect = []
     for exon in query:
-        qLen += abs(exon[0] - exon[1])
         if exon in refInterlap:  # exon overlaps at least partially with reference
             hit = list(refInterlap.find(exon))
             for h in hit:
+                refSeen.append(h)
                 # will return array of exon minus hit at each pos
                 diff = np.subtract(exon, h)
-                if diff[0] <= 0 and diff[1] >= 0:  # then query exon covers ref exon
+                if diff[0] == 0 and diff[1] == 0:  # then exon is perfect match
+                    TPbases += abs(h[0] - h[1])
+                    refPerfect.append(h)
+                elif diff[0] <= 0 and diff[1] >= 0:  # then query exon covers ref exon
                     cov = abs(h[0] - h[1])
-                    QueryOverlap += cov
+                    FPbases += abs(diff[0])
+                    FPbases += abs(diff[1])
+                    TPbases += cov
                 elif diff[0] <= 0 and diff[1] < 0:  # means query partial covers ref
                     cov = abs(h[0] - exon[1])
-                    QueryOverlap += cov
+                    FPbases += abs(diff[0])
+                    FNbases += abs(diff[1])
+                    TPbases += cov
                 elif diff[0] > 0 and diff[1] >= 0:  # means query partial covers ref
                     cov = abs(exon[0] - h[1])
-                    QueryOverlap += cov
+                    FPbases += abs(diff[1])
+                    FNbases += abs(diff[0])
+                    TPbases += cov
                 elif diff[0] > 0 and diff[1] < 1:
                     cov = abs(exon[0] - exon[1])
-                    QueryOverlap += cov
-    # calculate AED
-    SP = QueryOverlap / float(qLen)
-    SN = QueryOverlap / float(rLen)
-    AED = 1 - ((SN + SP) / 2)
+                    FNbases += abs(diff[1])
+                    FNbases += abs(diff[0])
+                    TPbases += cov
+        else:
+            FPbases += abs(exon[0] - exon[1])
+    # last thing is to double check reference for missed exons
+    for ex in refInterlap:
+        if ex not in refSeen:
+            FNbases += abs(ex[0] - ex[1])
+    # calc AED
+    SN = (rLen - FNbases) / rLen
+    SP = (qLen - FPbases) / qLen
+    try:
+        AED = 1 - ((SN + SP) / 2)
+    except ZeroDivisionError:
+        AED = 1.00
     return AED
 
 
