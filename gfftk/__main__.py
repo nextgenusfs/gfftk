@@ -228,7 +228,12 @@ def convert_subparser(subparsers):
         metavar="",
     )
     optional_args.add_argument(
-        "--table", type="int", default=1, help="Codon table. Default: 1", metavar=""
+        "--table",
+        type=int,
+        default=1,
+        choices=[1, 11],
+        help="Codon table. Default: 1",
+        metavar="",
     )
     optional_args.add_argument(
         "-n",
