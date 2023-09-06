@@ -51,11 +51,11 @@ def convert(args):
                 args.input,
                 args.fasta,
                 output=args.out,
-                table=1,
+                table=args.table,
                 strip_stop=args.strip_stop,
             )
         elif args.output_format == "gtf":
-            tbl2gtf(args.input, args.fasta, output=args.out, table=1)
+            tbl2gtf(args.input, args.fasta, output=args.out, table=args.table)
         elif args.output_format == "transcripts":
             tbl2transcripts(
                 args.input,
@@ -78,18 +78,30 @@ def convert(args):
             )
     elif args.input_format == "gff3":
         if args.output_format == "tbl":
-            gff2tbl(args.input, args.fasta, output=args.out, table=1, debug=args.debug)
+            gff2tbl(
+                args.input,
+                args.fasta,
+                output=args.out,
+                table=args.table,
+                debug=args.debug,
+            )
         elif args.output_format == "proteins":
             gff2proteins(
                 args.input,
                 args.fasta,
                 output=args.out,
-                table=1,
+                table=args.table,
                 strip_stop=args.strip_stop,
                 debug=args.debug,
             )
         elif args.output_format == "gtf":
-            gff2gtf(args.input, args.fasta, output=args.out, table=1, debug=args.debug)
+            gff2gtf(
+                args.input,
+                args.fasta,
+                output=args.out,
+                table=args.table,
+                debug=args.debug,
+            )
         elif args.output_format == "transcripts":
             gff2transcripts(
                 args.input,
@@ -112,15 +124,27 @@ def convert(args):
             )
     elif args.input_format == "gtf":
         if args.output_format == "tbl":
-            gtf2tbl(args.input, args.fasta, output=args.out, table=1, debug=args.debug)
+            gtf2tbl(
+                args.input,
+                args.fasta,
+                output=args.out,
+                table=args.table,
+                debug=args.debug,
+            )
         elif args.output_format == "gff3":
-            gtf2gff(args.input, args.fasta, output=args.out, table=1, debug=args.debug)
+            gtf2gff(
+                args.input,
+                args.fasta,
+                output=args.out,
+                table=args.table,
+                debug=args.debug,
+            )
         elif args.output_format == "proteins":
             gtf2proteins(
                 args.input,
                 args.fasta,
                 output=args.out,
-                table=1,
+                table=args.table,
                 strip_stop=args.strip_stop,
                 debug=args.debug,
             )

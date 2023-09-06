@@ -806,7 +806,7 @@ Seqdesc ::= pub {
 }
 """
     with open(out, "w") as outfile:
-        outfile.write(text)
+        outfile.write(text.encode("utf-8"))
 
 
 def table2asn(
