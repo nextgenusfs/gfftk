@@ -805,7 +805,7 @@ Seqdesc ::= pub {
   }
 }
 """
-    with open(out, "w") as outfile:
+    with open(out, "wb") as outfile:
         outfile.write(text.encode("utf-8"))
 
 
