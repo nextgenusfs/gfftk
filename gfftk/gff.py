@@ -1356,7 +1356,7 @@ def validate_and_translate_models(
                     for y in [1, 2, 3]:
                         protSeq = translate(cdsSeq, v["strand"], y - 1, table=table)
                         numStops = protSeq.count("*")
-                        if protSeq[-1] == "*":
+                        if protSeq and protSeq[-1] == "*":
                             numStops -= 1
                         translateResults.append((y, numStops, protSeq))
                     sortedResults = sorted(translateResults, key=lambda tup: tup[1])
