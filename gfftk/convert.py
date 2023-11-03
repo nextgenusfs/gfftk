@@ -269,7 +269,16 @@ def tbl2gff3(tbl, fasta, output=False, table=1):
     dict2gff3(Genes, output=output)
 
 
-def tbl2gbff(tbl, fasta, output=False, table=1, organism=False, strain=False):
+def tbl2gbff(
+    tbl,
+    fasta,
+    output=False,
+    table=1,
+    organism=False,
+    strain=False,
+    tmpdir="/tmp",
+    cleanup=True,
+):
     """Convert NCBI TBL format to GenBank format.
 
     Will parse NCBI TBL format into GFFtk annotation dictionary and then write to GenBank output.
@@ -287,7 +296,16 @@ def tbl2gbff(tbl, fasta, output=False, table=1, organism=False, strain=False):
 
     """
     # write to Genbank format via table2asn
-    table2asn(tbl, fasta, output=output, table=table, organism=organism, strain=strain)
+    table2asn(
+        tbl,
+        fasta,
+        output=output,
+        table=table,
+        organism=organism,
+        strain=strain,
+        tmpdir=tmpdir,
+        cleanup=cleanup,
+    )
 
 
 def tbl2gtf(tbl, fasta, output=False, table=1):
@@ -495,7 +513,15 @@ def gff2gtf(gff, fasta, output=False, table=1, debug=False):
 
 
 def gff2gbff(
-    gff, fasta, output=False, table=1, organism=False, strain=False, debug=False
+    gff,
+    fasta,
+    output=False,
+    table=1,
+    organism=False,
+    strain=False,
+    debug=False,
+    tmpdir="/tmp",
+    cleanup=True,
 ):
     """Convert GFF3 format to GenBank format.
 
@@ -546,7 +572,14 @@ def gff2gbff(
     )
     # write to Genbank format via table2asn
     table2asn(
-        tmpTbl, fasta, output=output, table=table, organism=organism, strain=strain
+        tmpTbl,
+        fasta,
+        output=output,
+        table=table,
+        organism=organism,
+        strain=strain,
+        tmpdir=tmpdir,
+        cleanup=cleanup,
     )
     os.remove(tmpTbl)
 
@@ -578,7 +611,15 @@ def gtf2gff(gff, fasta, output=False, table=1, debug=False):
 
 
 def gtf2gbff(
-    gtf, fasta, output=False, table=1, organism=False, strain=False, debug=False
+    gtf,
+    fasta,
+    output=False,
+    table=1,
+    organism=False,
+    strain=False,
+    debug=False,
+    tmpdir="/tmp",
+    cleanup=True,
 ):
     """Convert GTF format to GenBank format.
 
@@ -629,7 +670,14 @@ def gtf2gbff(
     )
     # write to Genbank format via table2asn
     table2asn(
-        tmpTbl, fasta, output=output, table=table, organism=organism, strain=strain
+        tmpTbl,
+        fasta,
+        output=output,
+        table=table,
+        organism=organism,
+        strain=strain,
+        tmpdir=tmpdir,
+        cleanup=cleanup,
     )
     os.remove(tmpTbl)
 

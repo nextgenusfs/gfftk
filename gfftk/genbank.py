@@ -818,6 +818,7 @@ def table2asn(
     strain=False,
     tmpdir="/tmp",
     table=1,
+    cleanup=True,
 ):
     # function to run table2asn for whole genome
     workdir = os.path.join(tmpdir, f"table2asn_{uuid.uuid4()}")
@@ -870,7 +871,8 @@ def table2asn(
                 for line in infile:
                     sys.stdout.write(line)
         # clean up
-        shutil.rmtree(workdir)
+        if cleanup:
+            shutil.rmtree(workdir)
     else:
         print(f"table2asn failed: tmpdir={workdir}")
         raise SystemExit(1)
