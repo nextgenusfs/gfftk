@@ -284,8 +284,7 @@ def fasta2dict(fasta, full_header=False):
         if full_header:
             title = title
         else:
-            if " " in title:
-                title = title.split(" ", 1)[0]
+            title = title.split()[0]
         seqs[title] = seq
     if not isinstance(fasta, io.BytesIO):
         infile.close()
@@ -321,8 +320,7 @@ def fasta2headers(fasta, full_header=False):
         if full_header:
             title = title
         else:
-            if " " in title:
-                title = title.split(" ", 1)[0]
+            title = title.split()[0]
         headers.add(title)
     if not isinstance(fasta, io.BytesIO):
         infile.close()
@@ -358,8 +356,7 @@ def fasta2lengths(fasta, full_header=False):
         if full_header:
             title = title
         else:
-            if " " in title:
-                title = title.split(" ", 1)[0]
+            title = title.split()[0]
         seqs[title] = len(seq)
     if not isinstance(fasta, io.BytesIO):
         infile.close()
