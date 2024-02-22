@@ -88,7 +88,7 @@ def _gff_default_parser(gff, fasta, Genes):
             "three_prime_utr",
         ]:
             continue
-        if not contig in SeqRecords:
+        if contig not in SeqRecords:
             errors["contig_name"].append(line)
             continue
         attributes = unquote(attributes)
@@ -172,7 +172,7 @@ def _gff_default_parser(gff, fasta, Genes):
         gbkey = info.get("gbkey", None)
         # for error reporting capture unparsed keys
         for attr, value in info.items():
-            if not attr in [
+            if attr not in [
                 "ID",
                 "Parent",
                 "Name",
@@ -190,12 +190,12 @@ def _gff_default_parser(gff, fasta, Genes):
                 "gbkey",
                 "gene_synonym",
             ]:
-                if not attr in errors["unparsed_attributes"]:
+                if attr not in errors["unparsed_attributes"]:
                     errors["unparsed_attributes"].append(attr)
         # now we can do add to dictionary these parsed values
         # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
         if feature in ["gene", "pseudogene"]:
-            if not ID in Genes:
+            if ID not in Genes:
                 if feature == "pseudogene":
                     pseudoFlag = True
                 else:
@@ -251,7 +251,7 @@ def _gff_default_parser(gff, fasta, Genes):
                 if not Product:
                     if feature in ["mRNA", "transcript"]:
                         Product = "hypothetical protein"
-                if not Parent in Genes:
+                if Parent not in Genes:
                     Genes[Parent] = {
                         "name": Name,
                         "type": [feature],
@@ -307,7 +307,7 @@ def _gff_default_parser(gff, fasta, Genes):
                             Genes[Parent]["location"][0],
                             end,
                         )
-                if not ID in idParent:
+                if ID not in idParent:
                     idParent[ID] = Parent
             # treat exon features
             elif feature == "exon":
@@ -319,7 +319,7 @@ def _gff_default_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -361,7 +361,7 @@ def _gff_default_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -395,7 +395,7 @@ def _gff_default_parser(gff, fasta, Genes):
                             Genes[GeneFeature]["CDS"][i].append((start, end))
                             if DBxref:
                                 for dbx in DBxref:
-                                    if not dbx in Genes[GeneFeature]["db_xref"][i]:
+                                    if dbx not in Genes[GeneFeature]["db_xref"][i]:
                                         Genes[GeneFeature]["db_xref"][i].append(dbx)
                             # add phase
                             try:
@@ -412,7 +412,7 @@ def _gff_default_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -454,7 +454,7 @@ def _gff_default_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -1194,7 +1194,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],

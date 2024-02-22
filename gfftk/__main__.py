@@ -151,6 +151,38 @@ def consensus_subparser(subparsers):
         help="percent gene model overlap with repeats to remove",
         metavar="",
     )
+    optional_args.add_argument(
+        "--min-exon",
+        type=int,
+        default=3,
+        dest="min_exon",
+        help="minimum exon length",
+        metavar="",
+    )
+    optional_args.add_argument(
+        "--max-exon",
+        type=int,
+        default=-1,
+        dest="max_exon",
+        help="maximum exon length",
+        metavar="",
+    )
+    optional_args.add_argument(
+        "--min-intron",
+        type=int,
+        default=10,
+        dest="min_intron",
+        help="minimum intron length",
+        metavar="",
+    )
+    optional_args.add_argument(
+        "--max-intron",
+        type=int,
+        default=-1,
+        dest="mix_intron",
+        help="maximum intron length",
+        metavar="",
+    )
     optional_args.add_argument("-l", "--logfile", help="write logs to file", metavar="")
     optional_args.add_argument(
         "--silent", action="store_true", help="do not write anything to terminal/stderr"

@@ -1,16 +1,17 @@
-import sys
-import os
-from collections import defaultdict, Counter, OrderedDict, ChainMap
-from .interlap import InterLap
-from .utils import zopen, check_inputs
-from .gff import gff2dict
-from .fasta import fastaparser
-import numpy as np
 import itertools
 import json
+import os
 import random
+import sys
+from collections import Counter, OrderedDict, defaultdict
+import numpy as np
 from natsort import natsorted
+import uuid
+from .fasta import fastaparser
+from .gff import gff2dict
+from . import interlap
 from .log import startLogging, system_info
+from .utils import check_inputs, zopen
 
 
 def consensus(args):
@@ -36,6 +37,10 @@ def consensus(args):
         minscore=args.minscore,
         repeats=args.repeats,
         repeat_overlap=args.repeat_overlap,
+        min_exon=args.min_exon,
+        max_exon=args.max_exon,
+        min_intron=args.min_intron,
+        max_intron=args.max_intron,
         log=log,
     )
 
@@ -51,6 +56,12 @@ def generate_consensus(
     minscore=False,
     repeats=False,
     repeat_overlap=90,
+    tiebreakers="calculated",
+    min_exon=3,
+    min_intron=10,
+    max_intron=-1,
+    max_exon=-1,
+    evidence_derived_models=[],
     log=sys.stderr.write,
 ):
     log("GFFtk consensus will generate the best gene model at each locus")
@@ -71,34 +82,51 @@ def generate_consensus(
         WEIGHTS = {}
     log("Parsing GFF3 files and clustering data into strand specific loci")
     data = parse_data(fasta, genes, proteins, transcripts, log=log)
-    order, n_evidence = calculate_source_order(data)
-    if n_evidence > 0:
-        log(
-            "Filtered gene models for evidence: {} loci have >3 genes and >2 alignment evidence".format(
-                n_evidence
+    if tiebreakers == "calculated":
+        # this will use evidence to calculate source tiebreakers
+        order, n_evidence = calculate_source_order(data)
+        if n_evidence > 0:
+            log(
+                "Filtered gene models for evidence: {} loci have >3 genes and >2 alignment evidence".format(
+                    n_evidence
+                )
             )
+    else:
+        tmpD = {}
+        for contig, obj in data.items():
+            for strand in ["+", "-"]:
+                for locus in obj[strand]:
+                    for gene in locus["genes"]:
+                        name, source, coords, cstart = gene
+                        if source in WEIGHTS:
+                            ord_score = WEIGHTS.get(source)
+                        else:
+                            ord_score = 1
+                        if source not in tmpD:
+                            tmpD[source] = ord_score
+        order = OrderedDict(sorted(tmpD.items(), key=lambda kv: kv[1], reverse=True))
+    log(
+        "Using these filtered loci, the calculated gene model source weights to use as tiebreakers:\n{}".format(
+            json.dumps(order)
         )
-        log(
-            "Using these filtered loci, the calculated gene model source weights to use as tiebreakers: {}".format(
-                json.dumps(order)
-            )
-        )
+    )
+
     consensus = {}
+    plus_consensus = defaultdict(interlap.InterLap)
+    minus_consensus = defaultdict(interlap.InterLap)
     counter = 1
     if debug:
         locus_bed = zopen(out + ".loci.bed", mode="w")
     else:
         locus_bed = open(os.devnull, "w")
+    split_stats = {}
     for contig, obj in data.items():
         for strand in ["+", "-"]:
             for locus in obj[strand]:
                 name = "locus_{}".format(counter)
-                locus_bed.write(
-                    "{}\t{}\t{}\t{}\n".format(
-                        contig, locus["locus"][0], locus["locus"][1], name
-                    )
-                )
-                keep = best_model(
+                # print(name, contig, strand, locus["locus"])
+                # keepers is a list of lists
+                keepers = best_model(
                     name,
                     contig,
                     strand,
@@ -106,22 +134,57 @@ def generate_consensus(
                     weights=WEIGHTS,
                     order=order,
                     debug=debug,
+                    min_exon=min_exon,
+                    min_intron=min_intron,
+                    max_intron=max_intron,
+                    max_exon=max_exon,
+                    evidence_derived_models=evidence_derived_models,
                 )
-                if not keep:
+                # print(name, keepers)
+                if not keepers:
                     continue
-                if not contig in consensus:
+                if len(keepers) not in split_stats:
+                    split_stats[len(keepers)] = 1
+                else:
+                    split_stats[len(keepers)] += 1
+                # write locus bed file
+                locus_bed.write(
+                    f'{contig}\t{locus["locus"][0]}\t{locus["locus"][1]}\t{name};n_genes={len(keepers)}\t0\t{strand}\n'
+                )
+                if contig not in consensus:
                     consensus[contig] = {}
-                if not keep[0] in consensus[contig]:
-                    consensus[contig][keep[0]] = {
-                        "strand": strand,
-                        "locus": name,
-                        "codon_start": keep[1]["codon_start"],
-                        "coords": keep[1]["coords"],
-                        "score": keep[1]["score"],
-                        "source": keep[1]["source"],
-                    }
+                for keep in keepers:
+                    if keep[0] not in consensus[contig]:
+                        consensus[contig][keep[0]] = {
+                            "strand": strand,
+                            "locus": name,
+                            "codon_start": keep[1]["codon_start"],
+                            "coords": keep[1]["coords"],
+                            "score": keep[1]["score"],
+                            "source": keep[1]["source"],
+                        }
+                        if strand == "+":
+                            plus_consensus[contig].add(
+                                (
+                                    min(min(keep[1]["coords"])),
+                                    max(max(keep[1]["coords"])),
+                                    name,
+                                    keep[1]["score"],
+                                )
+                            )
+                        elif strand == "-":
+                            minus_consensus[contig].add(
+                                (
+                                    min(min(keep[1]["coords"])),
+                                    max(max(keep[1]["coords"])),
+                                    name,
+                                    keep[1]["score"],
+                                )
+                            )
                 counter += 1
     locus_bed.close()
+    # debug models here
+    # log(split_stats)
     # check for minimum score
     if not minscore:
         score_threshold = auto_score_threshold(WEIGHTS, order)
@@ -134,8 +197,30 @@ def generate_consensus(
     for c, o in consensus.items():
         for m, v in o.items():
             if v["score"] > score_threshold:
+                # now see if model is contained on opposite strand, if so then skip
+                if v["strand"] == "+":
+                    hits = list(
+                        minus_consensus[c].find(
+                            ((min(min(v["coords"])), max(max(v["coords"]))))
+                        )
+                    )
+                elif v["strand"] == "-":
+                    hits = list(
+                        plus_consensus[c].find(
+                            ((min(min(v["coords"])), max(max(v["coords"]))))
+                        )
+                    )
+                if len(hits) > 0:
+                    contain = [
+                        contained(
+                            (min(min(v["coords"])), max(max(v["coords"]))), (x[0], x[1])
+                        )
+                        for x in hits
+                    ]
+                    if any(contain):
+                        continue
                 total += 1
-                if not v["source"] in sources:
+                if v["source"] not in sources:
                     sources[v["source"]] = 1
                 else:
                     sources[v["source"]] += 1
@@ -147,14 +232,15 @@ def generate_consensus(
     # now we can filter models in repeat regions
     if repeats:
         final, dropped_n = filter_models_repeats(
-            fasta, repeats, filtered, filter_threshold=repeat_overlap
+            fasta, repeats, filtered, filter_threshold=repeat_overlap, log=log
         )
         log("{} gene models were dropped due to repeat overlap".format(dropped_n))
     else:
         final = filtered
     log(
-        "{} consensus gene models derived from these sources: {}".format(
-            len(final), json.dumps(sources)
+        "{} consensus gene models derived from these sources:\n{}".format(
+            len(final),
+            json.dumps(sorted(sources.items(), key=lambda x: x[1], reverse=True)),
         )
     )
     # finally we can write to GFF3 format
@@ -163,13 +249,13 @@ def generate_consensus(
     return final
 
 
-def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90):
+def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90, log=False):
     dropped = 0
     # return fasta length for stats generation
     seq_length = fasta_length(fasta)
     # build interlap object with repeats
     repeat_length = 0
-    repeat_inter = defaultdict(InterLap)
+    repeat_inter = defaultdict(interlap.InterLap)
     for r in repeats:
         if os.path.isfile(r):
             if r.endswith(".bed"):
@@ -177,11 +263,12 @@ def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90):
             else:
                 repeat_inter, repeat_length = gff2interlap(r, fasta, inter=repeat_inter)
     pct_repeats = repeat_length / seq_length
-    log(
-        "Loaded repeats representing {:.2%} of the genome and filtering out loci that are > {}% overlap with repeats".format(
-            pct_repeats, filter_threshold
+    if log:
+        log(
+            "Loaded repeats representing {:.2%} of the genome and filtering out loci that are > {}% overlap with repeats".format(
+                pct_repeats, filter_threshold
+            )
         )
-    )
     # now we can filter results by going to through gene models and
     # looking at which models overlap with repeats
     filtered = {}
@@ -224,7 +311,7 @@ def gff2interlap(input, fasta, inter=False):
     """
     length = 0
     if not inter:
-        inter = defaultdict(InterLap)
+        inter = defaultdict(interlap.InterLap)
     Genes = gff2dict(input, fasta)
     for k, v in natsorted(list(Genes.items())):
         inter[v["contig"]].add((v["location"][0], v["location"][1]))
@@ -236,7 +323,7 @@ def bed2interlap(bedfile, inter=False):
     # load interlap object from a bed file
     length = 0
     if not inter:
-        inter = defaultdict(InterLap)
+        inter = defaultdict(interlap.InterLap)
     with zopen(bedfile) as infile:
         for line in infile:
             line = line.strip()
@@ -259,18 +346,38 @@ def auto_score_threshold(weights, order, user_weight=6):
 
 
 def cluster_interlap(obj):
+    # use the interlap.reduce function to get clusters
+    # then come back through and assign data to the clusters
+    all_coords = [(x[0], x[1]) for x in obj]
+    bins = interlap.reduce(all_coords)
+    results = []
+    for b in bins:
+        hits = list(obj.find(b))
+        if len(hits) > 1:
+            results.append(
+                {
+                    "locus": b,
+                    "genes": [x[2:] for x in hits],
+                    "proteins": [],
+                    "transcripts": [],
+                    "repeats": [],
+                }
+            )
+    return results
+
+
+def cluster_interlap_old(obj):
     seen = set()
     results = []
     for i, loc in enumerate(obj):
         if loc[2] in seen:
             continue
-        source = loc[3]
         hits = list(obj.find((loc[0], loc[1])))
         if len(hits) > 1:
             for x in hits:
                 seen.add(x[2])
             # sub cluster for unique sources
-            cleaned = [hits]  # sub_cluster(hits)
+            cleaned = [hits]
             for r in cleaned:
                 starts = [x[0] for x in r]
                 ends = [x[1] for x in r]
@@ -323,20 +430,30 @@ def sub_cluster(obj):
         return seeds
 
 
+def contained(a, b):
+    # check if coords in a are completely contained in b
+    left = a[0] - b[0]
+    right = a[1] - b[1]
+    if left > 0 and right < 0:
+        return True
+    else:
+        return False
+
+
 def get_overlap(a, b):
     return max(0, min(a[1], b[1]) - max(a[0], b[0]))
 
 
 def get_loci(annot_dict):
     # input is annotation dictionary
-    plus_inter = defaultdict(InterLap)
-    minus_inter = defaultdict(InterLap)
+    plus_inter = defaultdict(interlap.InterLap)
+    minus_inter = defaultdict(interlap.InterLap)
     contigs = []
     pseudo = []
     for gene, info in annot_dict.items():
-        if not info["contig"] in contigs:
+        if info["contig"] not in contigs:
             contigs.append(info["contig"])
-        if info["pseudo"] == True:
+        if info["pseudo"] is True:
             pseudo.append((gene, info))
             continue
         if info["protein"][0].count("*") > 1:
@@ -403,7 +520,7 @@ def gffevidence2dict(file, Evi):
                     phase,
                     attributes,
                 ) = line.split("\t")
-            except:
+            except:  # noqa: E722
                 continue
             seen.add(line)
             start = int(start)
@@ -416,14 +533,14 @@ def gffevidence2dict(file, Evi):
                     fields[k] = v
                 except (IndexError, ValueError) as E:
                     pass
-            if not "ID" in fields:
+            if "ID" not in fields:
                 continue
             ID = fields["ID"]
             if "target" in fields:
                 Target = fields["target"]
             else:
                 Target = None
-            if not ID in Evi:
+            if ID not in Evi:
                 Evi[ID] = {
                     "target": Target,
                     "type": feature,
@@ -449,8 +566,8 @@ def gffevidence2dict(file, Evi):
 def add_evidence(loci, evidence, source="proteins"):
     # here we will build interlap obj of evidence
     # then loop through loci and pull in evidence that aligns to each locus
-    plus_inter = defaultdict(InterLap)
-    minus_inter = defaultdict(InterLap)
+    plus_inter = defaultdict(interlap.InterLap)
+    minus_inter = defaultdict(interlap.InterLap)
     for k, v in evidence.items():
         if v["strand"] == "+":
             plus_inter[v["contig"]].add(
@@ -479,33 +596,43 @@ def add_evidence(loci, evidence, source="proteins"):
                 loci[k]["-"][z][source] = cleaned
 
 
+def ensure_unique_names(genes):
+    # takes annotation dictionary and appends unique slug
+    slug = str(uuid.uuid4())[:8]
+    cleaned = {}
+    for k, v in genes.items():
+        cleaned[f"{k}.{slug}"] = v
+    return cleaned
+
+
 def parse_data(genome, gene, protein, transcript, log=sys.stderr.write):
     # parse the input data and build locus data structure
     # all inputs should be lists to support multiple inputs
     Preds = []
     n_models = 0
     sources = {"predictions": set(), "evidence": set()}
-    for g in gene:
+    for g in natsorted(gene):
         parsed_genes = gff2dict(os.path.abspath(g), genome)
-        Preds.append(parsed_genes)
-        n_models += len(parsed_genes)
-        for k, v in parsed_genes.items():
+        cleaned = ensure_unique_names(parsed_genes)
+        Preds.append(cleaned)
+        n_models += len(cleaned)
+        for k, v in cleaned.items():
             sources["predictions"].add(v["source"])
     Proteins = {}
     if protein:
-        for p in protein:
+        for p in natsorted(protein):
             Proteins = gffevidence2dict(os.path.abspath(p), Proteins)
             for k, v in Proteins.items():
                 sources["evidence"].add(v["source"])
     Transcripts = {}
     if transcript:
-        for t in transcript:
+        for t in natsorted(transcript):
             Transcripts = gffevidence2dict(os.path.abspath(t), Transcripts)
             for k, v in Transcripts.items():
                 sources["evidence"].add(v["source"])
-    # merge parsed predictions
+    # merge parsed predictions into single dictionary
     log(f"Merging gene predictions from {len(Preds)} source files\n{sources}")
-    Genes = dict(ChainMap(*Preds))
+    Genes = {k: v for d in Preds for k, v in d.items()}
     # now build loci from gene models
     loci, n_loci, pseudo = get_loci(Genes)
     pbs = {}
@@ -515,8 +642,8 @@ def parse_data(genome, gene, protein, transcript, log=sys.stderr.write):
         else:
             pbs[x[1]["source"]] += 1
     log(
-        "Parsed {} gene models into {} loci. Dropped {} genes models that were pseudo [labled as such or internal stop codons]\n{}\n{}".format(
-            n_models, n_loci, len(pseudo), pbs, ", ".join([x[0] for x in pseudo[:10]])
+        "Parsed {} gene models into {} loci. Dropped {} genes models that were pseudo [labled as such or internal stop codons]\n{}".format(
+            n_models, n_loci, len(pseudo), pbs
         )
     )
 
@@ -538,34 +665,42 @@ def filter4evidence(data, n_genes=3, n_evidence=2):
                 if len(m["genes"]) >= n_genes:
                     if (len(m["transcripts"]) + len(m["proteins"])) >= n_evidence:
                         n_filt += 1
-                        if not contig in filt:
+                        if contig not in filt:
                             if strand == "+":
                                 filt[contig] = {"+": [m], "-": []}
                             else:
                                 filt[contig] = {"-": [m], "+": []}
                         else:
-                            if not strand in filt[contig]:
+                            if strand not in filt[contig]:
                                 filt[contig][strand] = [m]
                             else:
                                 filt[contig][strand].append(m)
     return filt, n_filt
 
 
-def score_by_evidence(locus, weights={}):
+def score_by_evidence(locus, weights={}, derived=[]):
     results = {}
     for gene in locus["genes"]:
         score = {"proteins": [], "transcripts": []}
         name, source, coords, cstart = gene
-        for s in ["proteins", "transcripts"]:
-            for x in locus[s]:
-                q_name, q_source, q_coords = x
-                score[s].append(
-                    score_evidence(coords[0], q_coords, weight=weights.get(source, 1))
-                )
-        results[name] = {
-            "protein_evidence_score": sum(score["proteins"]),
-            "transcript_evidence_score": sum(score["transcripts"]),
-        }
+        if source not in derived:
+            for s in ["proteins", "transcripts"]:
+                for x in locus[s]:
+                    q_name, q_source, q_coords = x
+                    score[s].append(
+                        score_evidence(
+                            coords[0], q_coords, weight=weights.get(source, 1)
+                        )
+                    )
+            results[name] = {
+                "protein_evidence_score": sum(score["proteins"]),
+                "transcript_evidence_score": sum(score["transcripts"]),
+            }
+        else:
+            results[name] = {
+                "protein_evidence_score": 0.0,
+                "transcript_evidence_score": 0.0,
+            }
     return results
 
 
@@ -700,6 +835,65 @@ def reasonable_model(
     return True
 
 
+def refine_cluster(locus, derived=[]):
+    # get sources here, but ignore models derived from evidence, ie we
+    # just want to find ab initio models here
+    sources = [x[1] for x in locus["genes"] if x[1] not in derived]
+    if len(sources) > 0:
+        src, n = Counter(sources).most_common(1)[0]
+        if n > 1:
+            # [['contig_76-snap.4', 'snap', [[(11710, 11713), (12068, 12155), (12543, 12881), (15021, 15918)]], 1]]
+            seeds = []
+            queries = []
+            locs = []
+            for x in locus["genes"]:
+                if x[1] == src:
+                    coords = (min(x[2][0])[0], max(x[2][0])[1])
+                    if len(locs) > 0:
+                        unique = True
+                        for z in locs:
+                            if get_overlap(coords, z) > 0:
+                                unique = False
+                        if unique:
+                            locs.append(coords)
+                            if isinstance(x, list):
+                                seeds.append(x)
+                            else:
+                                seeds.append([x])
+                        else:
+                            queries.append(x)
+                    else:
+                        locs.append(coords)
+                        if isinstance(x, list):
+                            seeds.append(x)
+                        else:
+                            seeds.append([x])
+                else:
+                    queries.append(x)
+            if len(seeds) > 1:
+                # get final data strucutre
+                final = {}
+                for x, y in enumerate(seeds):
+                    final[x] = [y]
+                # if the seeds overlap, then forget it, its a single locus
+                # now we can assign the queries to seeds
+                for y in queries:
+                    for idx, w in enumerate(locs):
+                        o = get_overlap([min(y[2][0])[0], max(y[2][0])[1]], w)
+                        if o > 0:
+                            if isinstance(y, list):
+                                final[idx].append(y)
+                            else:
+                                final[idx].append([y])
+                return final
+            else:
+                return False
+        else:
+            return False
+    else:
+        return False
+
+
 def best_model(
     locus_name,
     contig,
@@ -712,23 +906,158 @@ def best_model(
     min_intron=10,
     max_intron=-1,
     max_exon=-1,
+    evidence_derived_models=[],
 ):
-    results = {}
-    # check if could be multiple
-    sources = [x[1] for x in locus["genes"]]
-    s, n = Counter(sources).most_common(1)[0]
-    # more work needed here, we need logic to split a locus, ie one large gene versus two shorter ones? comment out for now
-    # if n > 1:  # could be multiple genes here
-    #    print("---------------")
-    #    print(s, n)
-    #    print("Multiple sources one locus: {}".format(locus["genes"]))
     # get evidence scores
-    evidence_scores = score_by_evidence(locus)
+    evidence_scores = score_by_evidence(locus, derived=evidence_derived_models)
     # get aed scores
     de_novo_aed_scores = de_novo_distance(locus)
-    # now go through genes and combine scores
+    # check if could be multiple
+    sub_loci = refine_cluster(locus, derived=evidence_derived_models)
+    if sub_loci:
+        # print("---------------")
+        # print(f"Sub clusters identified: {len(sub_loci)}")
+        r = []
+        seen = set()
+        non_redundant = []
+        for i, z in sub_loci.items():
+            # print(f"cluster {i}: {z}")
+            tmp_locus = {
+                "genes": z,
+                "locus": locus["locus"],
+                "proteins": locus["proteins"],
+                "transcripts": locus["transcripts"],
+                "repeats": locus["repeats"],
+            }
+            tmp_results = score_aggregator(
+                locus_name,
+                tmp_locus,
+                weights,
+                order,
+                de_novo_aed_scores,
+                evidence_scores,
+                min_exon=min_exon,
+                min_intron=min_intron,
+                max_intron=max_intron,
+                max_exon=max_exon,
+            )
+            tmp_sorted = sorted(
+                tmp_results.items(), key=lambda e: e[1]["score"], reverse=True
+            )
+            for model in tmp_sorted:
+                if model[0] not in seen:
+                    seen.add(model[0])
+                    non_redundant.append(model)
+            # drop any models that aren't reasonable, even if highest scoring
+            tmp_filtered = [x for x in tmp_sorted if x[1]["check"] is True]
+            if len(tmp_filtered) > 0:
+                r.append(tmp_filtered)
+        # now we need to go through the results and choose wisely, single or multiple models
+        if len(r) > 0:
+            try:
+                besties = set(
+                    [
+                        (
+                            x[0][0],
+                            (
+                                min(x[0][1]["coords"])[0],
+                                max(x[0][1]["coords"])[1],
+                            ),
+                            max(x[0][1]["coords"])[1] - min(x[0][1]["coords"])[0],
+                            i,
+                        )
+                        for i, x in enumerate(r)
+                    ]
+                )
+            except IndexError:
+                print(r)
+                raise SystemExit(1)
+            # print(r)
+            # print("best models:")
+            # print(besties)
+            # simple first, if best hits all same model
+            if len(besties) == 1:  # then just single model to return
+                bm = [r[0][0]]
+            elif len(besties) > 1:  # more work here
+                bms = solve_sub_loci(besties)
+                bm = []
+                for b in bms:
+                    bm.append(r[b[3]][0])
+        else:
+            bm = []
+    else:  # these are singles, shortcut the sub cluster routine
+        # now go through genes and combine scores
+        results = score_aggregator(
+            locus_name,
+            locus,
+            weights,
+            order,
+            de_novo_aed_scores,
+            evidence_scores,
+            min_exon=min_exon,
+            min_intron=min_intron,
+            max_intron=max_intron,
+            max_exon=max_exon,
+        )
+        best_result = sorted(results.items(), key=lambda e: e[1]["score"], reverse=True)
+        non_redundant = best_result
+        best_result_filtered = [x for x in best_result if x[1]["check"] is True]
+        # check if we need to break any ties
+        if len(best_result_filtered) > 0:
+            best_score = best_result_filtered[0][1]["score"]
+            anyties = [x for x in best_result_filtered if x[1]["score"] >= best_score]
+            if len(anyties) > 1:
+                breaktie = sorted(
+                    anyties, key=lambda x: order[x[1]["source"]], reverse=True
+                )
+                bm = [random.choice(breaktie)]
+            else:
+                bm = [anyties[0]]
+        else:
+            bm = []
+    # if debug than write GFF3 to file
+    if debug:
+        debug_gff_writer(debug, contig, strand, non_redundant)
+    return bm
+
+
+def solve_sub_loci(result):
+    # given a set of tuples (id, coords, length, index)
+    # {('contig_1-g4', (10518, 12217), 1699, 0), ('contig_1-snap.5', (10801, 16904), 6103, 1)}
+    # need to return non-overlapping coords to fill the locus space
+    keep = set()
+    sbl = sorted(list(result), key=lambda x: x[2], reverse=True)
+    keep.add(sbl[0])
+    for x in sbl[1:]:
+        k_coords = list(list(zip(*keep))[1])
+        ovlps = []
+        for y in k_coords:
+            ovlps.append(get_overlap(x[1], y))
+        if len(set(ovlps)) == 1 and ovlps[0] == 0:
+            keep.add(x)
+    return list(keep)
+
+
+def score_aggregator(
+    locus_name,
+    locus,
+    weights,
+    order,
+    de_novo_aed_scores,
+    evidence_scores,
+    min_exon=3,
+    min_intron=10,
+    max_intron=-1,
+    max_exon=-1,
+):
+    results = {}
     for gene in locus["genes"]:
-        name, source, coords, cstart = gene
+        try:
+            name, source, coords, cstart = gene
+        except ValueError:
+            print("ERROR parsing gene object")
+            print(gene)
+            raise SystemExit(1)
         # check if gene is reasonable
         check = reasonable_model(
             coords[0],
@@ -739,7 +1068,7 @@ def best_model(
         )
         user_score = weights.get(source, 1) * 6
         order_score = order.get(source, 0)
-        aed_score = de_novo_aed_scores.get(name, 0) * 3
+        aed_score = de_novo_aed_scores.get(name, 0) * 2
         evi = evidence_scores.get(name)
         prot_score = evi["protein_evidence_score"]
         trans_score = evi["transcript_evidence_score"]
@@ -748,38 +1077,19 @@ def best_model(
             total_score = 0
         else:
             total_score = user_score + aed_score + prot_score + trans_score
-        results[name] = {
+        d = {
             "source": source,
             "coords": coords[0],
             "check": check,
             "score": total_score,
             "locus": locus_name,
             "codon_start": cstart,
-            "all_scores": "user:{},aed:{:.4f},prot:{},trans:{},order:{}".format(
-                user_score, aed_score, prot_score, trans_score, order_score
+            "all_scores": "total:{:.2f},user:{},aed:{:.4f},prot:{},trans:{},order:{}".format(
+                total_score, user_score, aed_score, prot_score, trans_score, order_score
             ),
         }
-    best_result = sorted(results.items(), key=lambda e: e[1]["score"], reverse=True)
-    # if debug than write GFF3 to file
-    if debug:
-        debug_gff_writer(debug, contig, strand, best_result)
-    best_result_filtered = [x for x in best_result if x[1]["check"] == True]
-    # if n > 1:
-    # print(best_result_filtered)
-    # check if we need to break any ties
-    if len(best_result_filtered) > 0:
-        best_score = best_result_filtered[0][1]["score"]
-        anyties = [x for x in best_result_filtered if x[1]["score"] >= best_score]
-        if len(anyties) > 1:
-            breaktie = sorted(
-                anyties, key=lambda x: order[x[1]["source"]], reverse=True
-            )
-            bm = random.choice(breaktie)
-        else:
-            bm = anyties[0]
-    else:
-        bm = []
-    return bm
+        results[name] = d
+    return results
 
 
 def cluster_by_aed(locus, score=0.005):
@@ -799,16 +1109,16 @@ def cluster_by_aed(locus, score=0.005):
             if a <= score:
                 if centroid == g:
                     continue
-                if not centroid in clusters:
+                if centroid not in clusters:
                     clusters[centroid] = [g]
                 else:
-                    if not g in clusters[centroid]:
+                    if g not in clusters[centroid]:
                         clusters[centroid].append(g)
                 seen[g] = centroid
                 if g in clusters:
                     del clusters[g]
             else:
-                if not g in clusters and not g in seen:
+                if g not in clusters and g not in seen:
                     clusters[g] = []
     # print(clusters)
     final = []
@@ -826,7 +1136,7 @@ def map_coords(g_coords, e_coords):
     r = [
         [],
     ] * len(g_coords)
-    refInterlap = InterLap(g_coords)
+    refInterlap = interlap.InterLap(g_coords)
     for e in e_coords:
         if e in refInterlap:
             hit = list(refInterlap.find(e))
@@ -883,7 +1193,7 @@ def calculate_source_order(data):
                 for locus in obj[strand]:
                     all = order_sources(locus)
                     for k, v in all.items():
-                        if not v["source"] in cweights:
+                        if v["source"] not in cweights:
                             cweights[v["source"]] = [v["score"]]
                         else:
                             cweights[v["source"]].append(v["score"])
@@ -906,7 +1216,7 @@ def calculate_source_order(data):
                 for locus in obj[strand]:
                     for gene in locus["genes"]:
                         name, source, coords, cstart = gene
-                        if not source in order:
+                        if source not in order:
                             order[source] = 1
     return order, n_filt
 
@@ -926,6 +1236,24 @@ def calculate_gene_distance(locus):
     return dist
 
 
+def src_scaling_factor(obj):
+    # from the aed de novo distance, check how many other sources overlap with
+    src = []
+    for k, v in obj.items():
+        if v < 1.0:  # means some overlap
+            src.append(
+                k.rsplit(".", 1)[-1]
+            )  # this works because src slug is appended to each name
+    dups = Counter(src)
+    if len(dups) > 0:
+        # there are some legit cases where this is perhaps problematic....
+        # but we will return here a fraction of the srcs that are 1 and use as scaling factor
+        ones = [x for x in dups.values() if x == 1]
+        return len(ones) / len(dups)
+    else:
+        return 1.0
+
+
 def de_novo_distance(locus):
     results = {}
     if len(locus["genes"]) > 1:
@@ -936,11 +1264,12 @@ def de_novo_distance(locus):
         # this is not as fine-grained as EVM's exon and splice site overlap method, where each exon/intron is evaluated
         for k, v in distances.items():
             total = float(sum(v.values()))
-            # print(locus['genes'], k, v, len(locus['genes']), len(v))
+            # we can measure the sources of overlap via the unique slug in each value
+            scaling_factor = src_scaling_factor(v)
             assert (
                 len(locus["genes"]) == len(v) + 1
             ), "ERROR, AED distance calculation failed"
-            results[k] = (len(locus["genes"])) - total
+            results[k] = ((len(locus["genes"])) - total) * scaling_factor
     else:  # single gene, so value here is 0
         geneID = locus["genes"][0][0]
         results[geneID] = 0.0
@@ -958,8 +1287,7 @@ def getAED(query, reference):
     def _length(listTup):
         len = 0
         for i in listTup:
-            l = abs(i[0] - i[1])
-            len += l
+            len += abs(i[0] - i[1])
         return len
 
     # check if identical
@@ -968,7 +1296,7 @@ def getAED(query, reference):
     # make sure sorted
     rLen = _length(reference)
     qLen = _length(query)
-    refInterlap = InterLap(reference)
+    refInterlap = interlap.InterLap(reference)
     FPbases = 0
     FNbases = 0
     TPbases = 0
