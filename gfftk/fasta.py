@@ -173,7 +173,7 @@ def RevComp(s):
         try:
             cseq += rev_comp_lib[c]
         except KeyError:  # meaning not actually a proper code
-            cseq += "X"
+            cseq += "N"
     return cseq
 
 
