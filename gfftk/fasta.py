@@ -170,7 +170,10 @@ def RevComp(s):
     s = s.upper()
     for i in range(0, n):
         c = s[n - i - 1]
-        cseq += rev_comp_lib[c]
+        try:
+            cseq += rev_comp_lib[c]
+        except KeyError:  # meaning not actually a proper code
+            cseq += "X"
     return cseq
 
 
