@@ -1752,7 +1752,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             # treat exon features
             elif feature == "exon":
                 Parent = info.get("transcript_id", None)
-                if "," in Parent:
+                if Parent and "," in Parent:
                     parents = Parent.split(",")
                 else:
                     parents = [Parent]
@@ -1796,7 +1796,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             elif feature == "CDS":
                 ID = info.get("protein_id", None)
                 Parent = info.get("transcript_id", None)
-                if "," in Parent:
+                if Parent and "," in Parent:
                     parents = Parent.split(",")
                 else:
                     parents = [Parent]
@@ -1844,7 +1844,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             # treat 5' UTRs
             elif feature == "five_prime_utr" or feature == "5UTR":
                 Parent = info.get("transcript_id", None)
-                if "," in Parent:
+                if Parent and "," in Parent:
                     parents = Parent.split(",")
                 else:
                     parents = [Parent]
@@ -1887,7 +1887,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             # treat 3' UTR
             elif feature == "three_prime_utr" or feature == "3UTR":
                 Parent = info.get("transcript_id", None)
-                if "," in Parent:
+                if Parent and "," in Parent:
                     parents = Parent.split(",")
                 else:
                     parents = [Parent]
