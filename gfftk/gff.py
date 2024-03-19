@@ -2265,7 +2265,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "contig": contig,
                     "product": [],
                     "source": source,
-                    "phase": [],
+                    "phase": [[]],
                     "db_xref": [],
                     "go_terms": [],
                     "note": [],
