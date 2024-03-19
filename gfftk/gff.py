@@ -1464,6 +1464,9 @@ def _detect_gtf_format(gff):
     if "exon" not in features:
         parser = _gtf_genemark_parser
         _format = "genemark"
+    elif "gene" not in features:
+        parser = _gtf_jgi_parser
+        _format = "jgi"
     if not isinstance(gff, io.BytesIO):
         infile.close()
     return parser, _format
@@ -1612,7 +1615,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             "3UTR",
         ]:
             continue
-        if not contig in SeqRecords:
+        if contig not in SeqRecords:
             errors["contig_name"].append(line)
             continue
         attributes = unquote(attributes)
@@ -1750,8 +1753,6 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             # treat exon features
             elif feature == "exon":
                 Parent = info.get("transcript_id", None)
-                if "name" in info:
-                    ID = info.get("name", None)
                 if Parent and "," in Parent:
                     parents = Parent.split(",")
                 else:
@@ -1759,8 +1760,8 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                 for p in parents:
                     if p in idParent:
                         GeneFeature = idParent.get(p)
-                    elif ID:
-                        GeneFeature = ID
+                    else:
+                        GeneFeature - info.get("name", None)
                     if GeneFeature:
                         if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
@@ -1805,8 +1806,6 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                 for p in parents:
                     if p in idParent:
                         GeneFeature = idParent.get(p)
-                    else:
-                        GeneFeature = ID
                     if GeneFeature:
                         if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
@@ -1989,7 +1988,7 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
             "3UTR",
         ]:
             continue
-        if not contig in SeqRecords:
+        if contig not in SeqRecords:
             errors["contig_name"].append(line)
             continue
         attributes = unquote(attributes)
@@ -2017,7 +2016,7 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
             ID = info.get("gene_id", None)
             Name = info.get("gene_name", None)
             feature_type = info.get("gene_biotype", None)
-            if not ID in Genes:
+            if ID not in Genes:
                 if feature_type and feature_type == "pseudogene":
                     pseudoFlag = True
                 else:
@@ -2062,7 +2061,7 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
                 feature_type = info.get("transcript_biotype", None)
                 Product = "hypothetical protein"
                 display_feature = "mRNA"
-                if not Parent in Genes:
+                if Parent not in Genes:
                     Genes[Parent] = {
                         "name": Name,
                         "type": [display_feature],
@@ -2118,7 +2117,7 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
                             Genes[Parent]["location"][0],
                             end,
                         )
-                if not ID in idParent:
+                if ID not in idParent:
                     idParent[ID] = Parent
             # treat codings sequence features
             elif feature == "CDS":
@@ -2132,7 +2131,7 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -2170,6 +2169,158 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
                                 Genes[GeneFeature]["phase"][i].append(int(phase))
                             except ValueError:
                                 Genes[GeneFeature]["phase"][i].append("?")
+    if not isinstance(gtf, io.BytesIO):
+        input.close()
+    return Genes, errors
+
+
+def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
+    # this is a custom parser for old gff/gtf JGI format (stupid).
+    # idea is to go through line by line and parse the records and add to Genes dictionary
+    errors = {
+        "contig_name": [],
+        "columns": [],
+        "comments": [],
+        "unparsed_attributes": [],
+        "no_parent": [],
+        "no_id": [],
+    }
+    SeqRecords = fasta2headers(fasta)
+    if isinstance(gtf, io.BytesIO):
+        gtf.seek(0)
+        input = gtf
+    else:
+        input = zopen(gtf)
+    for line in input:
+        if line.startswith("\n") or line.startswith("#"):
+            errors["comments"].append(line)
+            continue
+        line = line.rstrip()
+        # skip lines that aren't 9 columns
+        if not line.count("\t") == 8:
+            errors["columns"].append(line)
+            continue
+        (
+            contig,
+            source,
+            feature,
+            start,
+            end,
+            score,
+            strand,
+            phase,
+            attributes,
+        ) = line.split("\t")
+        if feature not in [
+            "exon",
+            "CDS",
+        ]:
+            continue
+        if contig not in SeqRecords:
+            errors["contig_name"].append(line)
+            continue
+        attributes = unquote(attributes)
+        source = unquote(source)
+        feature = unquote(feature)
+        start = int(start)
+        end = int(end)
+        ID = None
+        Parent = None
+        info = {}
+        for field in attributes.split(";"):
+            try:
+                k, v = field.rsplit(" ", 1)
+                info[k.strip()] = v.strip().replace('"', "")
+            except (IndexError, ValueError) as E:
+                pass
+        # we can get the ID
+        ID = info.get("name", None)
+        if ID is None:
+            ID = info.get("gene_name", None)
+        # now we can do add to dictionary these parsed values
+        # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
+        if feature in ["exon"]:
+            Parent = info.get("transcriptId", None)
+            if Parent is None:
+                Parent = info.get("transcript_id", None)
+            if Parent is None:
+                continue
+            if Parent not in Genes:
+                Genes[Parent] = {
+                    "name": None,
+                    "type": [],
+                    "transcript": [],
+                    "cds_transcript": [],
+                    "protein": [],
+                    "5UTR": [],
+                    "3UTR": [],
+                    "gene_synonym": [],
+                    "codon_start": [],
+                    "ids": [ID],
+                    "CDS": [],
+                    "mRNA": [[(start, end)]],
+                    "strand": strand,
+                    "EC_number": [],
+                    "location": (start, end),
+                    "contig": contig,
+                    "product": [],
+                    "source": source,
+                    "phase": [],
+                    "db_xref": [],
+                    "go_terms": [],
+                    "note": [],
+                    "partialStart": [],
+                    "partialStop": [],
+                    "pseudo": False,
+                }
+            else:
+                if start < Genes[Parent]["location"][0]:
+                    Genes[Parent]["location"] = (start, Genes[Parent]["location"][1])
+                if end > Genes[Parent]["location"][1]:
+                    Genes[Parent]["location"] = (Genes[Parent]["location"][0], end)
+                Genes[Parent]["mRNA"][0].append((start, end))
+        else:  # then its a CDS feature
+            Parent = info.get("proteinId", None)
+            if Parent is None:
+                Parent = info.get("protein_id", None)
+            if Parent is None:
+                continue
+            if Parent not in Genes:
+                Genes[Parent] = {
+                    "name": None,
+                    "type": [],
+                    "transcript": [],
+                    "cds_transcript": [],
+                    "protein": [],
+                    "5UTR": [],
+                    "3UTR": [],
+                    "gene_synonym": [],
+                    "codon_start": [],
+                    "ids": [ID],
+                    "CDS": [[(start, end)]],
+                    "mRNA": [[(start, end)]],
+                    "strand": strand,
+                    "EC_number": [],
+                    "location": (start, end),
+                    "contig": contig,
+                    "product": [],
+                    "source": source,
+                    "phase": [[int(phase)]],
+                    "db_xref": [],
+                    "go_terms": [],
+                    "note": [],
+                    "partialStart": [],
+                    "partialStop": [],
+                    "pseudo": False,
+                }
+            else:
+                Genes[Parent]["CDS"][0].append((start, end))
+                # add phase
+                try:
+                    Genes[Parent]["phase"][0].append(int(phase))
+                except ValueError:
+                    Genes[Parent]["phase"][0].append("?")
+
     if not isinstance(gtf, io.BytesIO):
         input.close()
     return Genes, errors
