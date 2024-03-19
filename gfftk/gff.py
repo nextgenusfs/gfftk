@@ -2288,7 +2288,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
             if Parent not in Genes:
                 Genes[Parent] = {
                     "name": None,
-                    "type": [],
+                    "type": ['mRNA'],
                     "transcript": [],
                     "cds_transcript": [],
                     "protein": [],
@@ -2315,6 +2315,8 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                 }
             else:
                 Genes[Parent]["CDS"][0].append((start, end))
+                if len(Genes[Parent]['type']) == 0:
+                    Genes[Parent]['type'].append('mRNA')
                 # add phase
                 try:
                     Genes[Parent]["phase"][0].append(int(phase))
