@@ -1606,8 +1606,6 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             "mRNA",
             "exon",
             "CDS",
-            "start_codon",
-            "stop_codon",
             "three_prime_utr",
             "five_prime_utr",
             "5UTR",
@@ -1640,7 +1638,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             ID = info.get("gene_id", None)
             Name = info.get("gene_name", None)
             feature_type = info.get("gene_biotype", None)
-            if not ID in Genes:
+            if ID not in Genes:
                 if feature_type and feature_type == "pseudogene":
                     pseudoFlag = True
                 else:
@@ -1691,7 +1689,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                     Product = "hypothetical {}".format(feature_type)
                 else:
                     display_feature = feature
-                if not Parent in Genes:
+                if Parent not in Genes:
                     Genes[Parent] = {
                         "name": Name,
                         "type": [display_feature],
@@ -1747,7 +1745,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                             Genes[Parent]["location"][0],
                             end,
                         )
-                if not ID in idParent:
+                if ID not in idParent:
                     idParent[ID] = Parent
             # treat exon features
             elif feature == "exon":
@@ -1759,8 +1757,10 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                 for p in parents:
                     if p in idParent:
                         GeneFeature = idParent.get(p)
+                    else:
+                        GeneFeature - info.get("name", None)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -1803,8 +1803,10 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                 for p in parents:
                     if p in idParent:
                         GeneFeature = idParent.get(p)
+                    else:
+                        GeneFeature = ID
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -1852,7 +1854,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -1895,7 +1897,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
