@@ -2260,7 +2260,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "CDS": [[]],
                     "mRNA": [[(start, end)]],
                     "strand": strand,
-                    "EC_number": [],
+                    "EC_number": [[]],
                     "location": (start, end),
                     "contig": contig,
                     "product": [],
