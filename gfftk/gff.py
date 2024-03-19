@@ -2252,8 +2252,8 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "transcript": [],
                     "cds_transcript": [],
                     "protein": [],
-                    "5UTR": [],
-                    "3UTR": [],
+                    "5UTR": [[]],
+                    "3UTR": [[]],
                     "gene_synonym": [],
                     "codon_start": [],
                     "ids": [ID],
@@ -2288,12 +2288,12 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
             if Parent not in Genes:
                 Genes[Parent] = {
                     "name": None,
-                    "type": ['mRNA'],
+                    "type": ["mRNA"],
                     "transcript": [],
                     "cds_transcript": [],
                     "protein": [],
-                    "5UTR": [],
-                    "3UTR": [],
+                    "5UTR": [[]],
+                    "3UTR": [[]],
                     "gene_synonym": [],
                     "codon_start": [],
                     "ids": [ID],
@@ -2303,7 +2303,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "EC_number": [],
                     "location": (start, end),
                     "contig": contig,
-                    "product": [],
+                    "product": ["hypothetical protein"],
                     "source": source,
                     "phase": [[int(phase)]],
                     "db_xref": [],
@@ -2315,8 +2315,10 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                 }
             else:
                 Genes[Parent]["CDS"][0].append((start, end))
-                if len(Genes[Parent]['type']) == 0:
-                    Genes[Parent]['type'].append('mRNA')
+                if len(Genes[Parent]["type"]) == 0:
+                    Genes[Parent]["type"].append("mRNA")
+                if len(Genes[Parent]["product"]) == 0:
+                    Genes[Parent]["product"].append("hypothetical protein")
                 # add phase
                 try:
                     Genes[Parent]["phase"][0].append(int(phase))
