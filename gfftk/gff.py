@@ -2257,7 +2257,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "gene_synonym": [],
                     "codon_start": [],
                     "ids": [ID],
-                    "CDS": [],
+                    "CDS": [[]],
                     "mRNA": [[(start, end)]],
                     "strand": strand,
                     "EC_number": [],
