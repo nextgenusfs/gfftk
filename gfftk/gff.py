@@ -1750,6 +1750,8 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             # treat exon features
             elif feature == "exon":
                 Parent = info.get("transcript_id", None)
+                if "name" in info:
+                    ID = info.get("name", None)
                 if Parent and "," in Parent:
                     parents = Parent.split(",")
                 else:
@@ -1757,8 +1759,8 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                 for p in parents:
                     if p in idParent:
                         GeneFeature = idParent.get(p)
-                    else:
-                        GeneFeature - info.get("name", None)
+                    elif ID:
+                        GeneFeature = ID
                     if GeneFeature:
                         if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
