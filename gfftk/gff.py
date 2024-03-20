@@ -2237,6 +2237,8 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
         ID = info.get("name", None)
         if ID is None:
             ID = info.get("gene_name", None)
+        if ID is None:
+            continue
         # now we can do add to dictionary these parsed values
         # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
         if feature in ["exon"]:
@@ -2245,8 +2247,8 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                 Parent = info.get("transcript_id", None)
             if Parent is None:
                 continue
-            if Parent not in Genes:
-                Genes[Parent] = {
+            if ID not in Genes:
+                Genes[ID] = {
                     "name": None,
                     "type": [],
                     "transcript": [],
@@ -2256,7 +2258,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "3UTR": [[]],
                     "gene_synonym": [],
                     "codon_start": [],
-                    "ids": [ID],
+                    "ids": [f"{ID}-T1"],
                     "CDS": [[]],
                     "mRNA": [[(start, end)]],
                     "strand": strand,
@@ -2274,19 +2276,19 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "pseudo": False,
                 }
             else:
-                if start < Genes[Parent]["location"][0]:
-                    Genes[Parent]["location"] = (start, Genes[Parent]["location"][1])
-                if end > Genes[Parent]["location"][1]:
-                    Genes[Parent]["location"] = (Genes[Parent]["location"][0], end)
-                Genes[Parent]["mRNA"][0].append((start, end))
+                if start < Genes[ID]["location"][0]:
+                    Genes[ID]["location"] = (start, Genes[ID]["location"][1])
+                if end > Genes[ID]["location"][1]:
+                    Genes[ID]["location"] = (Genes[ID]["location"][0], end)
+                Genes[ID]["mRNA"][0].append((start, end))
         else:  # then its a CDS feature
             Parent = info.get("proteinId", None)
             if Parent is None:
                 Parent = info.get("protein_id", None)
             if Parent is None:
                 continue
-            if Parent not in Genes:
-                Genes[Parent] = {
+            if ID not in Genes:
+                Genes[ID] = {
                     "name": None,
                     "type": ["mRNA"],
                     "transcript": [],
@@ -2296,7 +2298,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "3UTR": [[]],
                     "gene_synonym": [],
                     "codon_start": [],
-                    "ids": [ID],
+                    "ids": [f"{ID}-T1"],
                     "CDS": [[(start, end)]],
                     "mRNA": [[(start, end)]],
                     "strand": strand,
@@ -2314,16 +2316,16 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     "pseudo": False,
                 }
             else:
-                Genes[Parent]["CDS"][0].append((start, end))
-                if len(Genes[Parent]["type"]) == 0:
-                    Genes[Parent]["type"].append("mRNA")
-                if len(Genes[Parent]["product"]) == 0:
-                    Genes[Parent]["product"].append("hypothetical protein")
+                Genes[ID]["CDS"][0].append((start, end))
+                if len(Genes[ID]["type"]) == 0:
+                    Genes[ID]["type"].append("mRNA")
+                if len(Genes[ID]["product"]) == 0:
+                    Genes[ID]["product"].append("hypothetical protein")
                 # add phase
                 try:
-                    Genes[Parent]["phase"][0].append(int(phase))
+                    Genes[ID]["phase"][0].append(int(phase))
                 except ValueError:
-                    Genes[Parent]["phase"][0].append("?")
+                    Genes[ID]["phase"][0].append("?")
 
     if not isinstance(gtf, io.BytesIO):
         input.close()
