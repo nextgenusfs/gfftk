@@ -1101,7 +1101,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -1135,7 +1135,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                             Genes[GeneFeature]["CDS"][i].append((start, end))
                             if DBxref:
                                 for dbx in DBxref:
-                                    if not dbx in Genes[GeneFeature]["db_xref"][i]:
+                                    if dbx not in Genes[GeneFeature]["db_xref"][i]:
                                         Genes[GeneFeature]["db_xref"][i].append(dbx)
                             # add phase
                             try:
@@ -1152,7 +1152,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -2675,7 +2675,7 @@ def dict2gff3(input, output=False, debug=False, source=False, newline=False):
                         x = x.replace(";", ".")
                     if ":" in x:
                         base, values = x.split(":", 1)
-                        if not "," in values:
+                        if "," not in values:
                             CleanedNote.append(base + ":" + values)
                         else:
                             for y in values.split(","):

@@ -279,6 +279,18 @@ def convert_subparser(subparsers):
     )
     optional_args.add_argument("--strain", help="Strain name, eg. CBS1001", metavar="")
     optional_args.add_argument(
+        "--grep",
+        nargs="+",
+        help="Filter gene models, keep matches. [key:value]",
+        metavar="",
+    )
+    optional_args.add_argument(
+        "--grepv",
+        nargs="+",
+        help="Filter gene models, remove matches [key:value]",
+        metavar="",
+    )
+    optional_args.add_argument(
         "--debug", action="store_true", help="write parsing errors to stderr"
     )
 

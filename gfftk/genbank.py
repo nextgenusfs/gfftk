@@ -11,6 +11,8 @@ import os
 import subprocess
 import uuid
 import shutil
+import gb_io
+import datetime
 
 
 def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
@@ -359,7 +361,7 @@ def findUTRs(cds, mrna, strand):
         inter = InterLap()
         inter.add(cds)
         for i, x in enumerate(mrna):
-            if not x in inter:
+            if x not in inter:
                 loc = (list(inter)[0][0], list(inter)[-1][1])
                 diff = np.subtract(x, loc)
                 if diff[0] < 0 and diff[1] < 0:
@@ -728,6 +730,210 @@ def dict2tbl(
     if output:
         tbl.close()
     return errors, duplicates, pseudo, nocds
+
+
+def fetch_coords(v, i=0, feature="gene"):
+    if feature == "gene":
+        coords = gb_io.Range(
+            v["location"][0] - 1,
+            v["location"][1],
+            before=any(v["partialStart"]),
+            after=any(v["partialStop"]),
+        )
+        if v["strand"] == "-":
+            return gb_io.Complement(coords)
+        else:
+            return coords
+    else:
+        if v["partialStart"][i] is True:
+            partStart = True
+        else:
+            partStart = False
+        if v["partialStop"][i] is True:
+            partStop = True
+        else:
+            partStop = False
+        if feature == "CDS":
+            if len(v["CDS"][i]) > 1:
+                coords = gb_io.Join(
+                    [
+                        gb_io.Range(x[0] - 1, x[1], before=partStart, after=partStop)
+                        for x in sorted(v["CDS"][i])
+                    ]
+                )
+            else:
+                coords = gb_io.Range(
+                    v["CDS"][i][0][0] - 1,
+                    v["CDS"][i][0][1],
+                    before=partStart,
+                    after=partStop,
+                )
+            if v["strand"] == "-":
+                return gb_io.Complement(coords)
+            else:
+                return coords
+        else:
+            if len(v["mRNA"][i]) > 1:
+                coords = gb_io.Join(
+                    [
+                        gb_io.Range(x[0] - 1, x[1], before=partStart, after=partStop)
+                        for x in sorted(v["mRNA"][i])
+                    ]
+                )
+            else:
+                coords = gb_io.Range(
+                    v["mRNA"][i][0][0] - 1,
+                    v["mRNA"][i][0][1],
+                    before=partStart,
+                    after=partStop,
+                )
+            if v["strand"] == "-":
+                return gb_io.Complement(coords)
+            else:
+                return coords
+
+
+def reformatGO(term, goDict={}):
+    # GO_function: GO:0005515 - protein binding [Evidence IEA]
+    # GO_component: GO:0005634 - nucleus [Evidence IEA]
+    # GO_process: GO:0006355 - regulation of transcription, DNA-templated [Evidence IEA]
+    if term in goDict:
+        if goDict[term]["namespace"] == "biological_process":
+            base = "GO__process"
+        elif goDict[term]["namespace"] == "molecular_function":
+            base = "GO_function"
+        elif goDict[term]["namespace"] == "cellular_component":
+            base = "GO_component"
+        reformatted = f"{base}: {term} - {goDict[term]['name']} [Evidence IEA]"
+        return reformatted
+    else:
+        return None
+
+
+def dict2gbff(annots, seqs, outfile, organism=None, circular=False, lowercase=False):
+    # annots is annotation dictionary
+    # seqs is genome dictionary
+    # the annotation data is an OrderedDict but not gauranteed to be ordered by contig
+    goDict, go_format, go_date = go_term_dict()
+    data = {}
+    for k, v in natsorted(annots.items()):
+        if v["contig"] not in data:
+            data[v["contig"]] = [
+                gb_io.Feature(
+                    "source",
+                    gb_io.Range(0, len(seqs.get(v["contig"]))),
+                    qualifiers=[
+                        gb_io.Qualifier("mol_type", value="genomic DNA"),
+                        gb_io.Qualifier("organism", value=organism),
+                    ],
+                )
+            ]
+        # go through and add each feature
+        # check if any transcripts of gene are partial
+        # note that features/qualifiers will write in order, so lets keep this tidy
+        gene_feature = gb_io.Feature(
+            "gene",
+            fetch_coords(v, i=0, feature="gene"),
+            qualifiers=[gb_io.Qualifier("locus_tag", value=k)],
+        )
+        if v["name"] is not None:
+            gene_feature.qualifiers.append(gb_io.Qualifier("gene", value=v["name"]))
+        data[v["contig"]].append(gene_feature)
+        for i in range(0, len(v["ids"])):
+            transcript_feature = gb_io.Feature(
+                v["type"][i],
+                fetch_coords(v, i=i, feature=v["type"][i]),
+                qualifiers=[
+                    gb_io.Qualifier("locus_tag", value=k),
+                    gb_io.Qualifier("transcipt_id", value=v["ids"][i]),
+                ],
+            )
+            if v["name"] is not None:
+                transcript_feature.qualifiers.append(
+                    gb_io.Qualifier("gene", value=v["name"])
+                )
+            transcript_feature.qualifiers.append(
+                gb_io.Qualifier("product", value=v["product"][i])
+            )
+            data[v["contig"]].append(transcript_feature)
+            if v["type"][i] == "mRNA":  # then also write CDS feature
+                cds_feature = gb_io.Feature(
+                    "CDS",
+                    fetch_coords(v, i=i, feature="CDS"),
+                    qualifiers=[
+                        gb_io.Qualifier("locus_tag", value=k),
+                        gb_io.Qualifier("protein_id", value=v["ids"][i]),
+                    ],
+                )
+                # now we add qualifiers annotation if exists
+                if v["name"] is not None:
+                    cds_feature.qualifiers.append(
+                        gb_io.Qualifier("gene", value=v["name"])
+                    )
+                cds_feature.qualifiers.append(
+                    gb_io.Qualifier("product", value=v["product"][i])
+                )
+                # here is more optional functional annotation
+                for ecm in v["EC_number"][i]:
+                    cds_feature.qualifiers.append(
+                        gb_io.Qualifier("EC_number", value=ecm)
+                    )
+                for dbx in v["db_xref"][i]:
+                    cds_feature.qualifiers.append(gb_io.Qualifier("db_xref", value=dbx))
+                # GO terms go in the Note as well
+                CleanedNote = []
+                for x in v["note"][i]:
+                    if ";" in x:
+                        x = x.replace(";", ".")
+                    if ":" in x:
+                        base, values = x.split(":", 1)
+                        if "," not in values:
+                            CleanedNote.append(base + ":" + values)
+                        else:
+                            for y in values.split(","):
+                                CleanedNote.append(base + ":" + y)
+                    else:
+                        CleanedNote.append(x.replace(",", ""))
+                # now check for GO ontology
+                for go in v["go_terms"][i]:
+                    go_reform = reformatGO(go, goDict=goDict)
+                    if go_reform is not None:
+                        CleanedNote.append(go_reform)
+                # add note if any exists
+                if len(CleanedNote) > 0:
+                    cds_feature.qualifiers.append(
+                        gb_io.Qualifier("note", value="; ".join(CleanedNote))
+                    )
+                # lastly add the codon start and translation and then feature to the list
+                cds_feature.qualifiers.append(
+                    gb_io.Qualifier("codon_start", value=str(v["codon_start"][i]))
+                ),
+                cds_feature.qualifiers.append(
+                    gb_io.Qualifier("translation", value=v["protein"][i].rstrip("*"))
+                )
+                data[v["contig"]].append(cds_feature)
+    # okay, now we have dictionary keyed by scaffold, can built the record with sequence
+    records = []
+    for k, v in natsorted(seqs.items()):
+        rec_features = data.get(k, [])
+        if lowercase:
+            v = v.lower()
+        records.append(
+            gb_io.Record(
+                sequence=str.encode(v),
+                circular=circular,
+                molecule_type="DNA",
+                accession=None,
+                definition=organism,
+                name=k,
+                length=len(v),
+                date=datetime.date.today(),
+                features=rec_features,
+            )
+        )
+    # now dump the records
+    with open(outfile, "wb") as gb_out:
+        gb_io.dump(records, gb_out, escape_locus=True, truncate_locus=False)
 
 
 def sbt_writer(out):

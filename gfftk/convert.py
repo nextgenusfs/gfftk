@@ -45,7 +45,14 @@ def convert(args):
     # okay now we can load and convert
     if args.input_format == "tbl":
         if args.output_format == "gff3":
-            tbl2gff3(args.input, args.fasta, output=args.out, table=1)
+            tbl2gff3(
+                args.input,
+                args.fasta,
+                output=args.out,
+                table=1,
+                grep=args.grep,
+                grepv=args.grepv,
+            )
         elif args.output_format == "proteins":
             tbl2proteins(
                 args.input,
@@ -53,20 +60,33 @@ def convert(args):
                 output=args.out,
                 table=args.table,
                 strip_stop=args.strip_stop,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "gtf":
-            tbl2gtf(args.input, args.fasta, output=args.out, table=args.table)
+            tbl2gtf(
+                args.input,
+                args.fasta,
+                output=args.out,
+                table=args.table,
+                grep=args.grep,
+                grepv=args.grepv,
+            )
         elif args.output_format == "transcripts":
             tbl2transcripts(
                 args.input,
                 args.fasta,
                 output=args.out,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "cds-transcripts":
             tbl2cdstranscripts(
                 args.input,
                 args.fasta,
                 output=args.out,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "gbff":
             tbl2gbff(
@@ -75,6 +95,8 @@ def convert(args):
                 output=args.out,
                 organism=args.organism,
                 strain=args.strain,
+                grep=args.grep,
+                grepv=args.grepv,
             )
     elif args.input_format == "gff3":
         if args.output_format == "tbl":
@@ -84,6 +106,8 @@ def convert(args):
                 output=args.out,
                 table=args.table,
                 debug=args.debug,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "proteins":
             gff2proteins(
@@ -93,6 +117,8 @@ def convert(args):
                 table=args.table,
                 strip_stop=args.strip_stop,
                 debug=args.debug,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "gtf":
             gff2gtf(
@@ -101,18 +127,24 @@ def convert(args):
                 output=args.out,
                 table=args.table,
                 debug=args.debug,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "transcripts":
             gff2transcripts(
                 args.input,
                 args.fasta,
                 output=args.out,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "cds-transcripts":
             gff2cdstranscripts(
                 args.input,
                 args.fasta,
                 output=args.out,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "gbff":
             gff2gbff(
@@ -121,6 +153,8 @@ def convert(args):
                 output=args.out,
                 organism=args.organism,
                 strain=args.strain,
+                grep=args.grep,
+                grepv=args.grepv,
             )
     elif args.input_format == "gtf":
         if args.output_format == "tbl":
@@ -130,6 +164,8 @@ def convert(args):
                 output=args.out,
                 table=args.table,
                 debug=args.debug,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "gff3":
             gtf2gff(
@@ -138,6 +174,8 @@ def convert(args):
                 output=args.out,
                 table=args.table,
                 debug=args.debug,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "proteins":
             gtf2proteins(
@@ -147,18 +185,24 @@ def convert(args):
                 table=args.table,
                 strip_stop=args.strip_stop,
                 debug=args.debug,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "transcripts":
             gtf2transcripts(
                 args.input,
                 args.fasta,
                 output=args.out,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "cds-transcripts":
             gtf2cdstranscripts(
                 args.input,
                 args.fasta,
                 output=args.out,
+                grep=args.grep,
+                grepv=args.grepv,
             )
         elif args.output_format == "gbff":
             gtf2gbff(
@@ -167,6 +211,8 @@ def convert(args):
                 output=args.out,
                 organism=args.organism,
                 strain=args.strain,
+                grep=args.grep,
+                grepv=args.grepv,
             )
 
     elif args.input_format == "miniprot":  # this is an alt GFF3 format
@@ -246,7 +292,7 @@ def _dict2cdstranscripts(input, output=False):
         tranout.close()
 
 
-def tbl2gff3(tbl, fasta, output=False, table=1):
+def tbl2gff3(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
     """Convert NCBI TBL format to GFF3 format.
 
     Will parse NCBI TBL format into GFFtk annotation dictionary and then write to GFF3 output. Default is to write to stdout.
@@ -278,6 +324,8 @@ def tbl2gbff(
     strain=False,
     tmpdir="/tmp",
     cleanup=True,
+    grep=[],
+    grepv=[],
 ):
     """Convert NCBI TBL format to GenBank format.
 
@@ -308,7 +356,7 @@ def tbl2gbff(
     )
 
 
-def tbl2gtf(tbl, fasta, output=False, table=1):
+def tbl2gtf(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
     """Convert NCBI TBL format to GTF format.
 
     Will parse NCBI TBL format into GFFtk annotation dictionary and then write to GTF output.
@@ -332,7 +380,9 @@ def tbl2gtf(tbl, fasta, output=False, table=1):
     dict2gtf(Genes, output=output)
 
 
-def tbl2proteins(tbl, fasta, output=False, table=1, strip_stop=False):
+def tbl2proteins(
+    tbl, fasta, output=False, table=1, strip_stop=False, grep=[], grepv=[]
+):
     """Convert NCBI TBL format to translated protein FASTA format.
 
     Will parse NCBI TBL format into GFFtk annotation dictionary and then write protein coding
@@ -358,7 +408,9 @@ def tbl2proteins(tbl, fasta, output=False, table=1, strip_stop=False):
     _dict2proteins(Genes, output=output, strip_stop=strip_stop)
 
 
-def gff2proteins(gff, fasta, output=False, table=1, strip_stop=False, debug=False):
+def gff2proteins(
+    gff, fasta, output=False, table=1, strip_stop=False, debug=False, grep=[], grepv=[]
+):
     """Convert GFF3 format to translated protein FASTA format.
 
     Will parse GFF3 format into GFFtk annotation dictionary and then write protein coding
@@ -386,7 +438,7 @@ def gff2proteins(gff, fasta, output=False, table=1, strip_stop=False, debug=Fals
     _dict2proteins(Genes, output=output, strip_stop=strip_stop)
 
 
-def gff2transcripts(gff, fasta, output=False, table=1, debug=False):
+def gff2transcripts(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GFF3 format to transcript FASTA format.
 
     Will parse GFF3 format into GFFtk annotation dictionary and then write
@@ -412,7 +464,9 @@ def gff2transcripts(gff, fasta, output=False, table=1, debug=False):
     _dict2transcripts(Genes, output=output)
 
 
-def gff2cdstranscripts(gff, fasta, output=False, table=1, debug=False):
+def gff2cdstranscripts(
+    gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]
+):
     """Convert GFF3 format to CDS transcript [no UTRs] FASTA format.
 
     Will parse GFF3 format into GFFtk annotation dictionary and then write
@@ -438,7 +492,7 @@ def gff2cdstranscripts(gff, fasta, output=False, table=1, debug=False):
     _dict2cdstranscripts(Genes, output=output)
 
 
-def tbl2transcripts(tbl, fasta, output=False, table=1):
+def tbl2transcripts(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
     """Convert NCBI TBL format to transcript FASTA format.
 
     Will parse NCBI TBL format into GFFtk annotation dictionary and then write
@@ -462,7 +516,7 @@ def tbl2transcripts(tbl, fasta, output=False, table=1):
     _dict2transcripts(Genes, output=output)
 
 
-def tbl2cdstranscripts(tbl, fasta, output=False, table=1):
+def tbl2cdstranscripts(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
     """Convert NCBI TBL format to CDS transcript [no UTRS] in FASTA format.
 
     Will parse NCBI TBL format into GFFtk annotation dictionary and then write
@@ -486,7 +540,7 @@ def tbl2cdstranscripts(tbl, fasta, output=False, table=1):
     _dict2cdstranscripts(Genes, output=output)
 
 
-def gff2gtf(gff, fasta, output=False, table=1, debug=False):
+def gff2gtf(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GFF3 format to GTF format.
 
     Will parse GFF3 format into GFFtk annotation dictionary and then write to GTF output.
@@ -522,6 +576,8 @@ def gff2gbff(
     debug=False,
     tmpdir="/tmp",
     cleanup=True,
+    grep=[],
+    grepv=[],
 ):
     """Convert GFF3 format to GenBank format.
 
@@ -552,7 +608,7 @@ def gff2gbff(
     sortedGenes = OrderedDict(sGenes)
     scaff2genes = {}
     for k, v in list(sortedGenes.items()):
-        if not v["contig"] in scaff2genes:
+        if v["contig"] not in scaff2genes:
             scaff2genes[v["contig"]] = [k]
         else:
             scaff2genes[v["contig"]].append(k)
@@ -584,7 +640,7 @@ def gff2gbff(
     os.remove(tmpTbl)
 
 
-def gtf2gff(gff, fasta, output=False, table=1, debug=False):
+def gtf2gff(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GTF format to GFF format.
 
     Will parse GTF format into GFFtk annotation dictionary and then write to GFF3 output.
@@ -620,6 +676,8 @@ def gtf2gbff(
     debug=False,
     tmpdir="/tmp",
     cleanup=True,
+    grep=[],
+    grepv=[],
 ):
     """Convert GTF format to GenBank format.
 
@@ -650,7 +708,7 @@ def gtf2gbff(
     sortedGenes = OrderedDict(sGenes)
     scaff2genes = {}
     for k, v in list(sortedGenes.items()):
-        if not v["contig"] in scaff2genes:
+        if v["contig"] not in scaff2genes:
             scaff2genes[v["contig"]] = [k]
         else:
             scaff2genes[v["contig"]].append(k)
@@ -682,7 +740,7 @@ def gtf2gbff(
     os.remove(tmpTbl)
 
 
-def gff2tbl(gff, fasta, output=False, table=1, debug=False):
+def gff2tbl(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GFF3 format to NCBI TBL format .
 
     Will parse GFF3 annotation format into GFFtk annotation dictionary and then write to
@@ -713,7 +771,7 @@ def gff2tbl(gff, fasta, output=False, table=1, debug=False):
     sortedGenes = OrderedDict(sGenes)
     scaff2genes = {}
     for k, v in list(sortedGenes.items()):
-        if not v["contig"] in scaff2genes:
+        if v["contig"] not in scaff2genes:
             scaff2genes[v["contig"]] = [k]
         else:
             scaff2genes[v["contig"]].append(k)
@@ -733,7 +791,7 @@ def gff2tbl(gff, fasta, output=False, table=1, debug=False):
     )
 
 
-def gtf2tbl(gff, fasta, output=False, table=1, debug=False):
+def gtf2tbl(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GTF format to NCBI TBL format .
 
     Will parse GTF annotation format into GFFtk annotation dictionary and then write to
@@ -764,7 +822,7 @@ def gtf2tbl(gff, fasta, output=False, table=1, debug=False):
     sortedGenes = OrderedDict(sGenes)
     scaff2genes = {}
     for k, v in list(sortedGenes.items()):
-        if not v["contig"] in scaff2genes:
+        if v["contig"] not in scaff2genes:
             scaff2genes[v["contig"]] = [k]
         else:
             scaff2genes[v["contig"]].append(k)
@@ -784,7 +842,9 @@ def gtf2tbl(gff, fasta, output=False, table=1, debug=False):
     )
 
 
-def gtf2proteins(gff, fasta, output=False, table=1, strip_stop=False, debug=False):
+def gtf2proteins(
+    gff, fasta, output=False, table=1, strip_stop=False, debug=False, grep=[], grepv=[]
+):
     """Convert GTF format to translated protein FASTA format.
 
     Will parse GTF format into GFFtk annotation dictionary and then write protein coding
@@ -812,7 +872,7 @@ def gtf2proteins(gff, fasta, output=False, table=1, strip_stop=False, debug=Fals
     _dict2proteins(Genes, output=output, strip_stop=strip_stop)
 
 
-def gtf2transcripts(gff, fasta, output=False, table=1, debug=False):
+def gtf2transcripts(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GTF format to transcript FASTA format.
 
     Will parse GTF format into GFFtk annotation dictionary and then write
@@ -838,7 +898,9 @@ def gtf2transcripts(gff, fasta, output=False, table=1, debug=False):
     _dict2transcripts(Genes, output=output)
 
 
-def gtf2cdstranscripts(gff, fasta, output=False, table=1, debug=False):
+def gtf2cdstranscripts(
+    gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]
+):
     """Convert GTF format to CDS transcript [no UTRs] FASTA format.
 
     Will parse GFF3 format into GFFtk annotation dictionary and then write
