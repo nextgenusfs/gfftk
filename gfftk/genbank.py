@@ -15,7 +15,7 @@ import gb_io
 import datetime
 
 
-def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
+def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
     """
     need a method to convert directly from NCBI tbl format to several output formats
     to avoid conversion problems with GBK files that have mutliple transcripts
@@ -25,11 +25,11 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
     if not annotation:
         annotation = {}
     errors = []
-    if isinstance(input, io.BytesIO):
-        input.seek(0)
-        infile = input
+    if isinstance(inputfile, io.BytesIO):
+        inputfile.seek(0)
+        infile = inputfile
     else:
-        infile = zopen(input)
+        infile = zopen(inputfile)
     contig = ""
     for item in readBlocks2(infile, ">Feature", "\tgene\n"):
         if item[0].startswith(">Feature"):  # this will be contig header block
@@ -278,7 +278,7 @@ def tbl2dict(input, fasta, annotation=False, table=1, debug=False):
                         "partialStop": threepartial,
                         "pseudo": False,
                     }
-    if not isinstance(input, io.BytesIO):
+    if not isinstance(inputfile, io.BytesIO):
         infile.close()
     # now we need to sort coordinates, get protein/transcript sequences and capture UTRs
     SeqRecords = fasta2dict(fasta)

@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+title: 'GFFtk: genome annotation tool kit'
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Jonathan
+    name-particle: Mark
+    family-names: Palmer
+    email: nextgenusfs@gmail.com
+    orcid: 'https://orcid.org/0000-0003-0929-3658'
+    affiliation: Independent Researcher
+repository-code: 'https://github.com/nextgenusfs/gfftk'
+keywords:
+  - annotation
+  - genome
+  - gff3
+  - gtf
+  - consensus
+  - gene model
+license: BSD-2-Clause
+version: 24.10.29
+date-released: '2024-10-29'

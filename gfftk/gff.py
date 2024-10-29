@@ -49,10 +49,10 @@ def _gff_default_parser(gff, fasta, Genes):
     SeqRecords = fasta2headers(fasta)
     if isinstance(gff, io.BytesIO):
         gff.seek(0)
-        input = gff
+        infile = gff
     else:
-        input = zopen(gff)
-    for line in input:
+        infile = zopen(gff)
+    for line in infile:
         if line.startswith("\n") or line.startswith("#"):
             errors["comments"].append(line)
             continue
@@ -487,7 +487,7 @@ def _gff_default_parser(gff, fasta, Genes):
                             i = Genes[GeneFeature]["ids"].index(p)
                             Genes[GeneFeature]["3UTR"][i].append((start, end))
     if not isinstance(gff, io.BytesIO):
-        input.close()
+        infile.close()
     return Genes, errors
 
 
@@ -506,10 +506,10 @@ def _gff_miniprot_parser(gff, fasta, Genes):
     SeqRecords = fasta2headers(fasta)
     if isinstance(gff, io.BytesIO):
         gff.seek(0)
-        input = gff
+        infile = gff
     else:
-        input = zopen(gff)
-    for line in input:
+        infile = zopen(gff)
+    for line in infile:
         if line.startswith("\n") or line.startswith("#"):
             errors["comments"].append(line)
             continue
@@ -535,7 +535,7 @@ def _gff_miniprot_parser(gff, fasta, Genes):
             "stop_codon",
         ]:
             continue
-        if not contig in SeqRecords:
+        if contig not in SeqRecords:
             errors["contig_name"].append(line)
             continue
         attributes = unquote(attributes)
@@ -567,13 +567,13 @@ def _gff_miniprot_parser(gff, fasta, Genes):
             Name = Target.split()[0]
         # for error reporting capture unparsed keys
         for attr, value in info.items():
-            if not attr in ["ID", "Parent", "Identity", "Rank", "Positive", "Target"]:
-                if not attr in errors["unparsed_attributes"]:
+            if attr not in ["ID", "Parent", "Identity", "Rank", "Positive", "Target"]:
+                if attr not in errors["unparsed_attributes"]:
                     errors["unparsed_attributes"].append(attr)
         # now we can do add to dictionary these parsed values
         # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
         if feature in ["mRNA"]:
-            if not ID in Genes:
+            if ID not in Genes:
                 Genes[ID] = {
                     "name": Name,
                     "type": ["mRNA"],
@@ -649,7 +649,7 @@ def _gff_miniprot_parser(gff, fasta, Genes):
                     Genes[Parent]["CDS"][i][0] = nFT
                     Genes[Parent]["mRNA"][i][0] = nFT
     if not isinstance(gff, io.BytesIO):
-        input.close()
+        infile.close()
     return Genes, errors
 
 
@@ -668,10 +668,10 @@ def _gff_alignment_parser(gff, fasta, Genes):
     SeqRecords = fasta2headers(fasta)
     if isinstance(gff, io.BytesIO):
         gff.seek(0)
-        input = gff
+        infile = gff
     else:
-        input = zopen(gff)
-    for line in input:
+        infile = zopen(gff)
+    for line in infile:
         if line.startswith("\n") or line.startswith("#"):
             errors["comments"].append(line)
             continue
@@ -691,7 +691,7 @@ def _gff_alignment_parser(gff, fasta, Genes):
             phase,
             attributes,
         ) = line.split("\t")
-        if not contig in SeqRecords:
+        if contig not in SeqRecords:
             errors["contig_name"].append(line)
             continue
         attributes = unquote(attributes)
@@ -719,15 +719,15 @@ def _gff_alignment_parser(gff, fasta, Genes):
             Name = Target.split()[0]
         # for error reporting capture unparsed keys
         for attr, value in info.items():
-            if not attr in ["ID", "Target"]:
-                if not attr in errors["unparsed_attributes"]:
+            if attr not in ["ID", "Target"]:
+                if attr not in errors["unparsed_attributes"]:
                     errors["unparsed_attributes"].append(attr)
         if feature in ["cDNA_match", "EST_match", "nucleotide_to_protein_match"]:
             if feature == "nucleotide_to_protein_match":
                 product_name = "protein alignment"
             else:
                 product_name = "transcript alignment"
-            if not ID in Genes:
+            if ID not in Genes:
                 Genes[ID] = {
                     "name": Name,
                     "type": ["ncRNA"],
@@ -766,7 +766,7 @@ def _gff_alignment_parser(gff, fasta, Genes):
                 Genes[ID]["score"].append(round(float(score), 2))
                 Genes[ID]["target"].append(Target)
     if not isinstance(gff, io.BytesIO):
-        input.close()
+        infile.close()
     return Genes, errors
 
 
@@ -785,10 +785,10 @@ def _gff_ncbi_parser(gff, fasta, Genes):
     SeqRecords = fasta2headers(fasta)
     if isinstance(gff, io.BytesIO):
         gff.seek(0)
-        input = gff
+        infile = gff
     else:
-        input = zopen(gff)
-    for line in input:
+        infile = zopen(gff)
+    for line in infile:
         if line.startswith("\n") or line.startswith("#"):
             errors["comments"].append(line)
             continue
@@ -824,7 +824,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
             "three_prime_utr",
         ]:
             continue
-        if not contig in SeqRecords:
+        if contig not in SeqRecords:
             errors["contig_name"].append(line)
             continue
         attributes = unquote(attributes)
@@ -912,7 +912,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
         gbkey = info.get("gbkey", None)
         # for error reporting capture unparsed keys
         for attr, value in info.items():
-            if not attr in [
+            if attr not in [
                 "ID",
                 "Parent",
                 "Name",
@@ -930,12 +930,12 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                 "gbkey",
                 "gene_synonym",
             ]:
-                if not attr in errors["unparsed_attributes"]:
+                if attr not in errors["unparsed_attributes"]:
                     errors["unparsed_attributes"].append(attr)
         # now we can do add to dictionary these parsed values
         # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
         if feature in ["gene", "pseudogene"]:
-            if not ID in Genes:
+            if ID not in Genes:
                 if feature == "pseudogene":
                     pseudoFlag = True
                 else:
@@ -991,7 +991,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                 if not Product:
                     if feature in ["mRNA", "transcript"]:
                         Product = "hypothetical protein"
-                if not Parent in Genes:
+                if Parent not in Genes:
                     Genes[Parent] = {
                         "name": Name,
                         "type": [feature],
@@ -1047,7 +1047,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                             Genes[Parent]["location"][0],
                             end,
                         )
-                if not ID in idParent:
+                if ID not in idParent:
                     idParent[ID] = Parent
             # treat exon features
             elif feature == "exon":
@@ -1059,7 +1059,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                     if p in idParent:
                         GeneFeature = idParent.get(p)
                     if GeneFeature:
-                        if not GeneFeature in Genes:
+                        if GeneFeature not in Genes:
                             Genes[GeneFeature] = {
                                 "name": Name,
                                 "type": [],
@@ -1227,7 +1227,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
                             i = Genes[GeneFeature]["ids"].index(p)
                             Genes[GeneFeature]["3UTR"][i].append((start, end))
     if not isinstance(gff, io.BytesIO):
-        input.close()
+        infile.close()
     return Genes, errors
 
 
@@ -1580,10 +1580,10 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
     SeqRecords = fasta2headers(fasta)
     if isinstance(gtf, io.BytesIO):
         gtf.seek(0)
-        input = gtf
+        infile = gtf
     else:
-        input = zopen(gtf)
-    for line in input:
+        infile = zopen(gtf)
+    for line in infile:
         if line.startswith("\n") or line.startswith("#"):
             errors["comments"].append(line)
             continue
@@ -1932,7 +1932,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
                             Genes[GeneFeature]["3UTR"][i].append((start, end))
                 # note we are ignore start_codon and stop_codon as its redudant and not needed
     if not isinstance(gtf, io.BytesIO):
-        input.close()
+        infile.close()
     return Genes, errors
 
 
@@ -1951,10 +1951,10 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
     SeqRecords = fasta2headers(fasta)
     if isinstance(gtf, io.BytesIO):
         gtf.seek(0)
-        input = gtf
+        infile = gtf
     else:
-        input = zopen(gtf)
-    for line in input:
+        infile = zopen(gtf)
+    for line in infile:
         if line.startswith("\n") or line.startswith("#"):
             errors["comments"].append(line)
             continue
@@ -2170,7 +2170,7 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
                             except ValueError:
                                 Genes[GeneFeature]["phase"][i].append("?")
     if not isinstance(gtf, io.BytesIO):
-        input.close()
+        infile.close()
     return Genes, errors
 
 
@@ -2188,10 +2188,10 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
     SeqRecords = fasta2headers(fasta)
     if isinstance(gtf, io.BytesIO):
         gtf.seek(0)
-        input = gtf
+        infile = gtf
     else:
-        input = zopen(gtf)
-    for line in input:
+        infile = zopen(gtf)
+    for line in infile:
         if line.startswith("\n") or line.startswith("#"):
             errors["comments"].append(line)
             continue
@@ -2328,7 +2328,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
                     Genes[ID]["phase"][0].append("?")
 
     if not isinstance(gtf, io.BytesIO):
-        input.close()
+        infile.close()
     return Genes, errors
 
 
@@ -2524,14 +2524,14 @@ def simplifyGO(inputList):
     return simple
 
 
-def dict2gff3(input, output=False, debug=False, source=False, newline=False):
+def dict2gff3(infile, output=False, debug=False, source=False, newline=False):
     """Convert GFFtk standardized annotation dictionary to GFF3 file.
 
     Annotation dictionary generated by gff2dict or tbl2dict passed as input. This function then write to GFF3 format
 
     Parameters
     ----------
-    input : dict of dict
+    infile : dict of dict
         standardized annotation dictionary keyed by locus_tag
     output : str, default=sys.stdout
         annotation file in GFF3 format
@@ -2544,7 +2544,7 @@ def dict2gff3(input, output=False, debug=False, source=False, newline=False):
         return (d[1]["contig"], d[1]["location"][0])
 
     # sort the annotations by contig and start location
-    sGenes = natsorted(iter(input.items()), key=_sortDict)
+    sGenes = natsorted(iter(infile.items()), key=_sortDict)
     sortedGenes = OrderedDict(sGenes)
     # then loop through and write GFF3 format
     if output:
@@ -2786,7 +2786,7 @@ def dict2gff3(input, output=False, debug=False, source=False, newline=False):
         gffout.close()
 
 
-def dict2gtf(input, output=False, source=False):
+def dict2gtf(infile, output=False, source=False):
     """Convert GFFtk standardized annotation dictionary to GTF file.
 
     Annotation dictionary generated by gff2dict or tbl2dict passed as input. This function
@@ -2794,7 +2794,7 @@ def dict2gtf(input, output=False, source=False):
 
     Parameters
     ----------
-    input : dict of dict
+    infile : dict of dict
         standardized annotation dictionary keyed by locus_tag
     output : str, default=sys.stdout
         annotation in GTF format
@@ -2805,7 +2805,7 @@ def dict2gtf(input, output=False, source=False):
         return (d[1]["contig"], d[1]["location"][0])
 
     # sort the annotations by contig and start location
-    sGenes = natsorted(iter(input.items()), key=_sortDict)
+    sGenes = natsorted(iter(infile.items()), key=_sortDict)
     sortedGenes = OrderedDict(sGenes)
     if output:
         if output.endswith(".gz"):
@@ -2995,7 +2995,7 @@ def dict2gtf(input, output=False, source=False):
 
 
 def dict2gff3alignments(
-    input,
+    infile,
     output=False,
     debug=False,
     alignments="transcript",
@@ -3008,7 +3008,7 @@ def dict2gff3alignments(
 
     Parameters
     ----------
-    input : dict of dict
+    infile : dict of dict
         standardized annotation dictionary keyed by locus_tag
     output : str, default=sys.stdout
         annotation file in GFF3 format
@@ -3021,7 +3021,7 @@ def dict2gff3alignments(
         return (d[1]["contig"], d[1]["location"][0])
 
     # sort the annotations by contig and start location
-    sGenes = natsorted(iter(input.items()), key=_sortDict)
+    sGenes = natsorted(iter(infile.items()), key=_sortDict)
     sortedGenes = OrderedDict(sGenes)
     # then loop through and write GFF3 format
     if output:

@@ -305,14 +305,14 @@ def fasta_length(fasta):
     return length
 
 
-def gff2interlap(input, fasta, inter=False):
+def gff2interlap(infile, fasta, inter=False):
     """
     function to parse GFF3 file, construct scaffold/gene interlap dictionary
     """
     length = 0
     if not inter:
         inter = defaultdict(interlap.InterLap)
-    Genes = gff2dict(input, fasta)
+    Genes = gff2dict(infile, fasta)
     for k, v in natsorted(list(Genes.items())):
         inter[v["contig"]].add((v["location"][0], v["location"][1]))
         length += v["location"][0] - v["location"][1]
@@ -327,9 +327,9 @@ def bed2interlap(bedfile, inter=False):
     with zopen(bedfile) as infile:
         for line in infile:
             line = line.strip()
-            chr, start, end = line.split("\t")[:3]
-            inter[chr].add((int(start), int(end)))
-            length += int(end) - int(start)
+            contig, start, end = line.split("\t")[:3]
+            inter[contig].add((int(start), int(end)))
+            length += (int(end) - int(start))
     return inter, length
 
 
