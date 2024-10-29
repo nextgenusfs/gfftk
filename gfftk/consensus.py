@@ -256,14 +256,14 @@ def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90, log=
     # build interlap object with repeats
     repeat_length = 0
     repeat_inter = defaultdict(interlap.InterLap)
-    for r in repeats:
-        if os.path.isfile(r):
-            if r.endswith(".bed"):
-                repeat_inter, repeat_length = bed2interlap(r, inter=repeat_inter)
-            else:
-                repeat_inter, repeat_length = gff2interlap(r, fasta, inter=repeat_inter)
-    pct_repeats = repeat_length / seq_length
+    if os.path.isfile(repeats):
+        if repeats.endswith(".bed"):
+            repeat_inter, repeat_length = bed2interlap(repeats, inter=repeat_inter)
+        else:
+            repeat_inter, repeat_length = gff2interlap(repeats, fasta, inter=repeat_inter)
+    pct_repeats = repeat_length / float(seq_length)
     if log:
+        log(f'repeat_length={repeat_length} seq_length={seq_length}')
         log(
             "Loaded repeats representing {:.2%} of the genome and filtering out loci that are > {}% overlap with repeats".format(
                 pct_repeats, filter_threshold
