@@ -58,7 +58,7 @@ def generate_consensus(
     repeat_overlap=90,
     tiebreakers="calculated",
     min_exon=3,
-    min_intron=10,
+    min_intron=11,
     max_intron=-1,
     max_exon=-1,
     evidence_derived_models=[],

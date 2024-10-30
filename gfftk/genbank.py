@@ -173,11 +173,11 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                     tID = x.strip().split("|")[-1]
                     if "_mrna" in tID:
                         tID = tID.replace("_mrna", "")
-                    if not tID in transcriptID:
+                    if tID not in transcriptID:
                         transcriptID.append(tID)
                 elif x.startswith("\t\t\tprotein_id\t"):
                     pID = x.strip().split("|")[-1]
-                    if not pID in proteinID:
+                    if pID not in proteinID:
                         proteinID.append(pID)
                 elif x.startswith("\t\t\tgene_synonym\t"):
                     synonyms.append(x.strip().split("\t")[-1])
@@ -215,7 +215,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                         CDS[currentNum].append((cdsF, cdsR))
                     else:
                         CDS[currentNum].append((cdsR, cdsF))
-            if not geneID in annotation:
+            if geneID not in annotation:
                 if type in ["tRNA", "ncRNA", "rRNA"]:
                     annotation[geneID] = {
                         "name": Name,
@@ -1062,9 +1062,9 @@ def table2asn(
         cmd.append("-euk")
     modifiers = None
     if organism and strain:
-        modifiers = f"[organism={organism}] [strain={strain}]"
+        modifiers += f"[organism={organism}] [strain={strain}] [gcode={table}]"
     elif organism:
-        modifiers = f"[organism={organism}]"
+        modifiers = f"[organism={organism}] [gcode={table}]"
     if modifiers:
         cmd += ["-j", modifiers]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
