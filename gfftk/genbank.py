@@ -905,9 +905,11 @@ def dict2gbff(annots, seqs, outfile, organism=None, circular=False, lowercase=Fa
                         gb_io.Qualifier("note", value="; ".join(CleanedNote))
                     )
                 # lastly add the codon start and translation and then feature to the list
-                cds_feature.qualifiers.append(
-                    gb_io.Qualifier("codon_start", value=str(v["codon_start"][i]))
-                ),
+                (
+                    cds_feature.qualifiers.append(
+                        gb_io.Qualifier("codon_start", value=str(v["codon_start"][i]))
+                    ),
+                )
                 cds_feature.qualifiers.append(
                     gb_io.Qualifier("translation", value=v["protein"][i].rstrip("*"))
                 )
@@ -1062,7 +1064,7 @@ def table2asn(
         cmd.append("-euk")
     modifiers = None
     if organism and strain:
-        modifiers += f"[organism={organism}] [strain={strain}] [gcode={table}]"
+        modifiers = f"[organism={organism}] [strain={strain}] [gcode={table}]"
     elif organism:
         modifiers = f"[organism={organism}] [gcode={table}]"
     if modifiers:
