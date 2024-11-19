@@ -1,5 +1,6 @@
 import sys
 import json
+from statistics import median
 from .utils import check_inputs, zopen
 from .gff import gff2dict
 from .genbank import tbl2dict
@@ -16,7 +17,7 @@ def stats(args):
             sys.stderr.write(
                 "Error: unable to determine -i,--input format: {}".format(args.input)
             )
-            sys.exit(1)
+            raise SystemExit(1)
     # okay now we can load and convert
     if args.input_format == "tbl":
         Genes, parse_errors = tbl2dict(args.input, args.fasta, {}, table=1)
@@ -26,9 +27,9 @@ def stats(args):
     annot_stats = annotation_stats(Genes)
     if args.out:
         with zopen(args.out, mode="w") as outfile:
-            outfile.write(json.dumps(annot_stats, indent=4))
+            outfile.write(json.dumps(annot_stats, indent=2))
     else:
-        sys.stdout.write(json.dumps(annot_stats, indent=4))
+        sys.stdout.write(json.dumps(annot_stats, indent=2))
 
 
 def annotation_stats(Genes):
@@ -57,10 +58,15 @@ def annotation_stats(Genes):
             "CDS_no-start_no-stop": 0,
             "total_exons": 0,
             "total_cds_exons": 0,
+            "average_number_transcripts_per_gene": 0,
             "multiple_exon_transcript": 0,
             "single_exon_transcript": 0,
+            "average_number_cds_exons": 0,
             "avg_exon_length": 0,
+            "median_number_exons": 0,
+            "max_number_exons": 0,
             "avg_protein_length": 0,
+            "avg_transcript_length": 0,
             "functional": {
                 "go_terms": 0,
                 "interproscan": 0,
@@ -78,6 +84,9 @@ def annotation_stats(Genes):
         protLengths = []
         geneLengths = []
         exonLengths = []
+        transcriptLengths = []
+        num_transcripts_per_gene = []
+        cdsExons = []
         for k, v in Genes.items():
             stats["genes"] += 1
             gLength = v["location"][1] - v["location"][0]
@@ -90,10 +99,11 @@ def annotation_stats(Genes):
                 stats["repeat_region"] += 1
             elif v["type"] == "misc_feature":
                 stats["misc_feature"] += 1
-            elif not "mRNA" in v["type"] and "ncRNA" in v["type"]:
+            elif "mRNA" not in v["type"] and "ncRNA" in v["type"]:
                 stats["ncRNA"] += 1
             if v["name"]:
                 stats["common_name"] += 1
+            num_transcripts_per_gene.append(len(v["ids"]))
             for i in range(0, len(v["ids"])):
                 if v["type"][i] == "mRNA":
                     stats["mRNA"] += 1
@@ -102,25 +112,27 @@ def annotation_stats(Genes):
                     if v["protein"][i].endswith("*"):
                         pLen -= 1
                     protLengths.append(pLen)
+                    transcriptLengths.append(sum([x[1] - x[0] for x in v["mRNA"][i]]))
+                    if len(v["mRNA"][i]) > 1:
+                        stats["transcript-level"]["multiple_exon_transcript"] += 1
+                    else:
+                        stats["transcript-level"]["single_exon_transcript"] += 1
                     try:
-                        if len(v["mRNA"][i]) > 1:
-                            stats["transcript-level"]["multiple_exon_transcript"] += 1
                         for y in v["mRNA"][i]:
                             exon_length = y[1] - y[0]
                             exonLengths.append(exon_length)
                     except IndexError:
                         sys.stderr.write(
                             "ERROR calculating exon length for {}:\n{}".format(
-                                k, json.dumps(v, indent=4)
+                                k, json.dumps(v, indent=2)
                             )
                         )
-                        sys.exit(1)
-                    else:
-                        stats["transcript-level"]["single_exon_transcript"] += 1
+                        raise SystemExit(1)
                     stats["transcript-level"]["total_exons"] += len(v["mRNA"][i])
                     stats["transcript-level"]["total_exons"] += len(v["5UTR"][i])
                     stats["transcript-level"]["total_exons"] += len(v["3UTR"][i])
                     stats["transcript-level"]["total_cds_exons"] += len(v["CDS"][i])
+                    cdsExons.append(len(v["CDS"][i]))
                     if v["partialStart"][i] and v["partialStop"][i]:
                         stats["transcript-level"]["CDS_no-start_no-stop"] += 1
                     elif v["partialStart"][i]:
@@ -164,4 +176,15 @@ def annotation_stats(Genes):
             )
         except ZeroDivisionError:
             stats["transcript-level"]["avg_exon_length"] = 0
+        stats["transcript-level"]["average_number_transcripts_per_gene"] = round(
+            sum(num_transcripts_per_gene) / float(len(num_transcripts_per_gene)), 2
+        )
+        stats["transcript-level"]["avg_transcript_length"] = round(
+            sum(transcriptLengths) / float(len(transcriptLengths)), 2
+        )
+        stats["transcript-level"]["average_number_cds_exons"] = round(
+            sum(cdsExons) / float(len(cdsExons)), 2
+        )
+        stats["transcript-level"]["max_number_exons"] = max(cdsExons)
+        stats["transcript-level"]["median_number_exons"] = median(cdsExons)
     return stats
