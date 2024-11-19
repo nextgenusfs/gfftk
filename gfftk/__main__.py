@@ -179,7 +179,7 @@ def consensus_subparser(subparsers):
         "--max-intron",
         type=int,
         default=-1,
-        dest="mix_intron",
+        dest="max_intron",
         help="maximum intron length",
         metavar="",
     )
