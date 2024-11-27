@@ -122,9 +122,7 @@ def consensus_subparser(subparsers):
     optional_args.add_argument(
         "-r",
         "--repeats",
-        nargs="+",
-        default=[],
-        help="repeat alignments in BED or GFF3 format [accepts multiple files: space separated]",
+        help="repeat alignments in BED or GFF3 format",
         metavar="",
     )
     optional_args.add_argument(
