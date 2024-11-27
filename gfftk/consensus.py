@@ -24,7 +24,7 @@ def consensus(args):
     system_info(log)
     logger.info(args)
     check_inputs(
-        [args.fasta] + args.genes + args.proteins + args.transcripts + args.repeats
+        [args.fasta] + args.genes + args.proteins + args.transcripts + [args.repeats]
     )
     _ = generate_consensus(
         args.fasta,
@@ -689,8 +689,12 @@ def score_by_evidence(locus, weights={}, derived=[]):
                 for x in locus[s]:
                     q_name, q_source, q_coords = x
                     score[s].append(
-                        score_evidence(
-                            coords[0], q_coords, weight=weights.get(source, 1)
+                        (
+                            score_evidence(
+                                coords[0], q_coords, weight=weights.get(source, 1)
+                            ),
+                            q_source,
+                            q_name,
                         )
                     )
             results[name] = {
@@ -1147,6 +1151,14 @@ def map_coords(g_coords, e_coords):
             diff = np.subtract(e, hit[0])
             r[i] = list(diff)
     return r
+
+
+def score_coverage(g_coords, emap):
+    cov = []
+    tot = []
+    for i in range(len(g_coords)):
+        t = g_coords[i][1] - g_coords[i][0]
+        tot.append(t)
 
 
 def score_evidence(g_coords, e_coords, weight=2):
