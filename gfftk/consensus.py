@@ -689,13 +689,9 @@ def score_by_evidence(locus, weights={}, derived=[]):
                 for x in locus[s]:
                     q_name, q_source, q_coords = x
                     score[s].append(
-                        (
-                            score_evidence(
-                                coords[0], q_coords, weight=weights.get(source, 1)
-                            ),
-                            q_source,
-                            q_name,
-                        )
+                        score_evidence(
+                            coords[0], q_coords, weight=weights.get(source, 1)
+                        ),
                     )
             results[name] = {
                 "protein_evidence_score": sum(score["proteins"]),
