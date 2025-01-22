@@ -233,19 +233,17 @@ def _gff_default_parser(gff, fasta, Genes):
                 if end > Genes[ID]["location"][1]:
                     Genes[ID]["location"] = (Genes[ID]["location"][0], end)
         else:
-            if not ID:
-                if Name:
-                    ID = Name
-                # one of the dumbest things I've seen in ensembl they have only Parent=
-                elif feature in ["three_prime_UTR", "five_prime_UTR"]:
-                    ID = str(uuid.uuid4())
-                else:
-                    errors["no_id"].append(line)
-                    continue
             if not Parent:
                 errors["no_parent"].append(line)
                 continue
             if feature in ["mRNA", "transcript", "tRNA", "ncRNA", "rRNA"]:
+                # required that we have an ID here, else it not parsable
+                if not ID:
+                    if Name:
+                        ID = Name
+                    else:
+                        errors["no_id"].append(line)
+                        continue
                 if gbkey and gbkey == "misc_RNA":
                     feature = "ncRNA"
                 if not Product:
@@ -2667,9 +2665,7 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False):
                     ",".join(v["EC_number"][i])
                 )
             if len(v["note"][i]) > 0:
-                CleanedNote = (
-                    []
-                )  # need to make sure no commas or semi-colons in these data else will cause problems in parsing GFF3 output downstream
+                CleanedNote = []  # need to make sure no commas or semi-colons in these data else will cause problems in parsing GFF3 output downstream
                 for x in v["note"][i]:
                     if ";" in x:
                         x = x.replace(";", ".")
