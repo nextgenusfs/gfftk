@@ -80,7 +80,10 @@ def _gff_default_parser(gff, fasta, Genes):
             "CDS",
             "tRNA",
             "ncRNA",
+            "snoRNA",
+            "snRNA",
             "rRNA",
+            "tmRNA",
             "pseudogene",
             "five_prime_UTR",
             "five_prime_utr",
@@ -236,7 +239,16 @@ def _gff_default_parser(gff, fasta, Genes):
             if not Parent:
                 errors["no_parent"].append(line)
                 continue
-            if feature in ["mRNA", "transcript", "tRNA", "ncRNA", "rRNA"]:
+            if feature in [
+                "mRNA",
+                "transcript",
+                "tRNA",
+                "ncRNA",
+                "rRNA",
+                "snRNA",
+                "snoRNA",
+                "tmRNA",
+            ]:
                 # required that we have an ID here, else it not parsable
                 if not ID:
                     if Name:
