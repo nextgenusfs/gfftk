@@ -2708,7 +2708,7 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False):
                     extraAnnotations,
                 )
             )
-            if v["type"][i] in ["mRNA", "tRNA", "ncRNA"]:
+            if v["type"][i] in ["mRNA", "tRNA", "ncRNA", "tmRNA", "snRNA", "snoRNA"]:
                 if "5UTR" in v and v["5UTR"][i]:
                     # if 5'UTR then write those first
                     num_5utrs = len(v["5UTR"][i])
