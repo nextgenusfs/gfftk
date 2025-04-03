@@ -1,6 +1,14 @@
 build/
 gfftk.egg-info/
-tests/
 .DS_Store
 gfftk/__pycache__/
 docs/_html/
+tests_local/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+__pycache__/
+*.pyc

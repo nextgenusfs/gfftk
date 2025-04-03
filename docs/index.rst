@@ -10,6 +10,9 @@ Welcome to GFFtk's documentation!
    :maxdepth: 2
 
    install
+   usage
+   tutorial
+   modules
    API
 
 
