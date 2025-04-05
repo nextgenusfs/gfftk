@@ -149,7 +149,7 @@ def generate_consensus(
                     split_stats[len(keepers)] += 1
                 # write locus bed file
                 locus_bed.write(
-                    f'{contig}\t{locus["locus"][0]}\t{locus["locus"][1]}\t{name};n_genes={len(keepers)}\t0\t{strand}\n'
+                    f"{contig}\t{locus['locus'][0]}\t{locus['locus'][1]}\t{name};n_genes={len(keepers)}\t0\t{strand}\n"
                 )
                 if contig not in consensus:
                     consensus[contig] = {}
@@ -1149,44 +1149,97 @@ def map_coords(g_coords, e_coords):
     return r
 
 
-def score_coverage(g_coords, emap):
-    cov = []
-    tot = []
-    for i in range(len(g_coords)):
-        t = g_coords[i][1] - g_coords[i][0]
-        tot.append(t)
-
-
 def score_evidence(g_coords, e_coords, weight=2):
-    # simple score: 10 to 0
-    # 1 == e_coords contained and match intron/exons
-    # 0.5 == e_coords partially contained
+    # Enhanced scoring: 10 to 0 with percent coverage consideration
+    # 1 == e_coords contained and match intron/exons with 100% coverage
+    # 0.5 == e_coords partially contained or partial coverage
     # 0 == e_coords not contained or contained but intron/exon boundaries do not match
     # coords are list of tuples
     # g_coords is single gene model
     # e_coords is single evidence coordinates
+
+    # Calculate total gene model length
+    total_gene_length = sum(end - start for start, end in g_coords)
+
+    # If exact match, return maximum score
     if g_coords == e_coords:
         return 10 * weight
+
+    # Map evidence coordinates to gene coordinates
     emap = map_coords(g_coords, e_coords)
     score = 0
-    if len(g_coords) > 1:
+
+    # Calculate overlap and coverage
+    total_overlap = 0
+
+    if len(g_coords) > 1:  # Multi-exon gene
         mult = []
-        for x in emap:
-            if not x:
+        for i, x in enumerate(emap):
+            if not x:  # No overlap for this exon
                 mult.append(0)
-            else:
-                if x[0] >= 0 and x[1] <= 0:
-                    mult.append(10)
+                continue
+
+            # Calculate overlap for this exon
+            exon_length = g_coords[i][1] - g_coords[i][0]
+
+            if x[0] >= 0 and x[1] <= 0:  # Evidence contained within exon
+                # Calculate exact overlap
+                overlap = exon_length - abs(x[0]) - abs(x[1])
+                total_overlap += overlap
+                # Perfect match for this exon
+                mult.append(10)
+            else:  # Partial overlap
+                # Calculate partial overlap
+                if x[0] < 0:  # Evidence extends before exon
+                    start_overlap = g_coords[i][0]
                 else:
-                    mult.append(5)
-        score = (sum(mult) // len(g_coords)) * weight
-    else:  # single exon gene
-        if emap[0]:
-            if emap[0][0] >= 0 and emap[0][1] <= 0:
-                score = 10 * weight
-            else:
-                score = 5 * weight
-        else:
+                    start_overlap = g_coords[i][0] + x[0]
+
+                if x[1] > 0:  # Evidence extends after exon
+                    end_overlap = g_coords[i][1]
+                else:
+                    end_overlap = g_coords[i][1] + x[1]
+
+                overlap = max(0, end_overlap - start_overlap)
+                total_overlap += overlap
+                mult.append(5)
+
+        # Calculate base score
+        base_score = sum(mult) // len(g_coords)
+
+        # Calculate percent coverage
+        percent_coverage = (
+            total_overlap / total_gene_length if total_gene_length > 0 else 0
+        )
+
+        # Adjust score based on coverage
+        score = int(base_score * (0.5 + 0.5 * percent_coverage)) * weight
+
+    else:  # Single exon gene
+        exon_length = g_coords[0][1] - g_coords[0][0]
+
+        if emap[0]:  # Some overlap
+            if emap[0][0] >= 0 and emap[0][1] <= 0:  # Evidence contained within exon
+                # Calculate exact overlap
+                overlap = exon_length - abs(emap[0][0]) - abs(emap[0][1])
+                percent_coverage = overlap / exon_length if exon_length > 0 else 0
+                score = int(10 * (0.5 + 0.5 * percent_coverage)) * weight
+            else:  # Partial overlap
+                # Calculate partial overlap
+                if emap[0][0] < 0:  # Evidence extends before exon
+                    start_overlap = g_coords[0][0]
+                else:
+                    start_overlap = g_coords[0][0] + emap[0][0]
+
+                if emap[0][1] > 0:  # Evidence extends after exon
+                    end_overlap = g_coords[0][1]
+                else:
+                    end_overlap = g_coords[0][1] + emap[0][1]
+
+                overlap = max(0, end_overlap - start_overlap)
+                percent_coverage = overlap / exon_length if exon_length > 0 else 0
+                score = int(5 * (0.5 + 0.5 * percent_coverage)) * weight
+        else:  # No overlap
             score = 0
     return score
 
@@ -1275,9 +1328,9 @@ def de_novo_distance(locus):
             total = float(sum(v.values()))
             # we can measure the sources of overlap via the unique slug in each value
             scaling_factor = src_scaling_factor(v)
-            assert (
-                len(locus["genes"]) == len(v) + 1
-            ), "ERROR, AED distance calculation failed"
+            assert len(locus["genes"]) == len(v) + 1, (
+                "ERROR, AED distance calculation failed"
+            )
             results[k] = ((len(locus["genes"])) - total) * scaling_factor
     else:  # single gene, so value here is 0
         geneID = locus["genes"][0][0]
