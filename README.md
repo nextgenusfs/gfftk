@@ -16,3 +16,31 @@ To install the most updated code in master you can run:
 ```
 python -m pip install git+https://github.com/nextgenusfs/gfftk.git
 ```
+
+## Development
+
+### Code Formatting
+
+This project uses [pre-commit](https://pre-commit.com/) to ensure code quality and consistency. The pre-commit hooks run Black (code formatter), isort (import sorter), and flake8 (linter).
+
+To set up pre-commit:
+
+1. Install pre-commit:
+
+```bash
+pip install pre-commit
+```
+
+2. Install the git hooks:
+
+```bash
+pre-commit install
+```
+
+3. (Optional) Run against all files:
+
+```bash
+pre-commit run --all-files
+```
+
+After installation, the pre-commit hooks will run automatically on each commit to ensure your code follows the project's style guidelines.
