@@ -1,12 +1,14 @@
 import sys
-from collections import defaultdict, OrderedDict
-from natsort import natsorted
+from collections import OrderedDict, defaultdict
 from itertools import product
+
 import numpy as np
-from .utils import zopen
+from natsort import natsorted
+
+from .consensus import getAED
 from .gff import gff2dict
 from .interlap import InterLap
-from .consensus import getAED
+from .utils import zopen
 
 
 def compare(args):
@@ -64,26 +66,16 @@ def compareAnnotations(old, new, fasta, output=False):
         out = sys.stdout
     result = {}
     global no_change, identicalCDS, refUnique, queryUnique
-    no_change, identicalCDS, refUnique, queryUnique, totalmatches, totallength = (
-        0,
-    ) * 6
+    no_change, identicalCDS, refUnique, queryUnique, totalmatches, totallength = (0,) * 6
     oldInter, oldGenes = gff2interlap(old, fasta)
-    NumOldLoci, NumOldGenes, NumOldmRNA, NumOldtRNALoci, NumOldtRNA = countFeatures(
-        oldGenes
-    )
-    sys.stderr.write(
-        "Reference: {} contigs {} genes\n".format(len(oldInter), len(oldGenes))
-    )
+    NumOldLoci, NumOldGenes, NumOldmRNA, NumOldtRNALoci, NumOldtRNA = countFeatures(oldGenes)
+    sys.stderr.write("Reference: {} contigs {} genes\n".format(len(oldInter), len(oldGenes)))
     sys.stderr.write(
         "{}\n".format([NumOldLoci, NumOldGenes, NumOldmRNA, NumOldtRNALoci, NumOldtRNA])
     )
     newInter, newGenes = gff2interlap(new, fasta)
-    sys.stderr.write(
-        "Query: {} contigs {} genes\n".format(len(newInter), len(newGenes))
-    )
-    NumNewLoci, NumNewGenes, NumNewmRNA, NumNewtRNALoci, NumNewtRNA = countFeatures(
-        newGenes
-    )
+    sys.stderr.write("Query: {} contigs {} genes\n".format(len(newInter), len(newGenes)))
+    NumNewLoci, NumNewGenes, NumNewmRNA, NumNewtRNALoci, NumNewtRNA = countFeatures(newGenes)
     sys.stderr.write(
         "{}\n".format([NumNewLoci, NumNewGenes, NumNewmRNA, NumNewtRNALoci, NumNewtRNA])
     )

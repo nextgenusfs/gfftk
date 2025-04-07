@@ -1,8 +1,10 @@
-import platform
 import logging
-from .__init__ import __version__
-import numpy
+import platform
+
 import natsort
+import numpy
+
+from .__init__ import __version__
 from .interlap import __version__ as interlap_version
 
 GREEN = "\033[92m"

@@ -1,5 +1,7 @@
 import sys
+
 from natsort import natsorted
+
 from .utils import zopen
 
 

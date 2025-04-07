@@ -4,10 +4,8 @@ Unit tests for the gff module functions.
 
 import os
 import tempfile
-from gfftk.gff import (
-    _detect_format,
-    simplifyGO,
-)
+
+from gfftk.gff import _detect_format, simplifyGO
 
 
 class TestGFFFunctions:
@@ -18,9 +16,7 @@ class TestGFFFunctions:
         # Create a GFF3-like file for testing
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp:
             temp.write("##gff-version 3\n")
-            temp.write(
-                "contig1\tprediction\tgene\t1\t1000\t.\t+\t.\tID=gene1;Name=test_gene\n"
-            )
+            temp.write("contig1\tprediction\tgene\t1\t1000\t.\t+\t.\tID=gene1;Name=test_gene\n")
             temp_name = temp.name
 
         try:

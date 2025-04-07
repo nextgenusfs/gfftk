@@ -1,9 +1,10 @@
-import sys
 import json
+import sys
 from statistics import median
-from .utils import check_inputs, zopen
-from .gff import gff2dict
+
 from .genbank import tbl2dict
+from .gff import gff2dict
+from .utils import check_inputs, zopen
 
 
 def stats(args):
@@ -14,9 +15,7 @@ def stats(args):
         elif args.input.endswith((".gff", ".gff3", ".gff.gz", ".gff3.gz")):
             args.input_format = "gff3"
         else:
-            sys.stderr.write(
-                "Error: unable to determine -i,--input format: {}".format(args.input)
-            )
+            sys.stderr.write("Error: unable to determine -i,--input format: {}".format(args.input))
             raise SystemExit(1)
     # okay now we can load and convert
     if args.input_format == "tbl":

@@ -4,12 +4,8 @@ Advanced unit tests for the consensus module.
 
 import os
 import tempfile
-from gfftk.consensus import (
-    generate_consensus,
-    get_overlap,
-    contained,
-    fasta_length,
-)
+
+from gfftk.consensus import contained, fasta_length, get_overlap
 
 
 class TestConsensusAdvanced:
@@ -25,9 +21,7 @@ class TestConsensusAdvanced:
     def test_fasta_length(self):
         """Test the fasta_length function."""
         # Create a temporary FASTA file
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".fasta"
-        ) as temp:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta") as temp:
             temp.write(">contig1\n")
             temp.write("ATGCATGCATGCATGCATGC\n")  # 20 bases
             temp.write(">contig2\n")

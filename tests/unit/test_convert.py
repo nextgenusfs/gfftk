@@ -2,11 +2,7 @@
 Unit tests for the convert module.
 """
 
-from gfftk.convert import (
-    gff2gtf,
-    gff2proteins,
-    gff2transcripts,
-)
+from gfftk.convert import gff2gtf, gff2proteins, gff2transcripts
 
 
 class TestConvert:

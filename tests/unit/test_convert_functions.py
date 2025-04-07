@@ -5,12 +5,7 @@ Unit tests for the convert module functions.
 import os
 import tempfile
 
-from gfftk.convert import (
-    gff2gtf,
-    gff2proteins,
-    gff2transcripts,
-    gff2tbl,
-)
+from gfftk.convert import gff2gtf, gff2proteins, gff2tbl, gff2transcripts
 
 
 class TestConvertFunctions:
@@ -29,15 +24,11 @@ class TestConvertFunctions:
         # Create a temporary GFF file
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_gff:
             temp_gff.write("##gff-version 3\n")
-            temp_gff.write(
-                "contig1\tprediction\tgene\t1\t12\t.\t+\t.\tID=gene1;Name=test_gene\n"
-            )
+            temp_gff.write("contig1\tprediction\tgene\t1\t12\t.\t+\t.\tID=gene1;Name=test_gene\n")
             temp_gff.write(
                 "contig1\tprediction\tmRNA\t1\t12\t.\t+\t.\tID=mRNA1;Parent=gene1;Name=test_mrna\n"
             )
-            temp_gff.write(
-                "contig1\tprediction\tCDS\t1\t12\t.\t+\t0\tID=cds1;Parent=mRNA1\n"
-            )
+            temp_gff.write("contig1\tprediction\tCDS\t1\t12\t.\t+\t0\tID=cds1;Parent=mRNA1\n")
             temp_gff_name = temp_gff.name
 
         # Create a temporary FASTA file
@@ -80,15 +71,11 @@ class TestConvertFunctions:
         # Create a temporary GFF file
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_gff:
             temp_gff.write("##gff-version 3\n")
-            temp_gff.write(
-                "contig1\tprediction\tgene\t1\t12\t.\t+\t.\tID=gene1;Name=test_gene\n"
-            )
+            temp_gff.write("contig1\tprediction\tgene\t1\t12\t.\t+\t.\tID=gene1;Name=test_gene\n")
             temp_gff.write(
                 "contig1\tprediction\tmRNA\t1\t12\t.\t+\t.\tID=mRNA1;Parent=gene1;Name=test_mrna\n"
             )
-            temp_gff.write(
-                "contig1\tprediction\texon\t1\t12\t.\t+\t.\tID=exon1;Parent=mRNA1\n"
-            )
+            temp_gff.write("contig1\tprediction\texon\t1\t12\t.\t+\t.\tID=exon1;Parent=mRNA1\n")
             temp_gff_name = temp_gff.name
 
         # Create a temporary FASTA file

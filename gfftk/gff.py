@@ -1,23 +1,18 @@
-import sys
-import random
 import concurrent.futures
-from collections import OrderedDict
-from natsort import natsorted
-from .fasta import (
-    translate,
-    fasta2dict,
-    fasta2headers,
-    getSeqRegions,
-    RevComp,
-    codon_table,
-)
-from .utils import zopen
-from urllib.parse import unquote
-import uuid
-import io
 import gzip
+import io
+import random
 import re
+import sys
 import types
+import uuid
+from collections import OrderedDict
+from urllib.parse import unquote
+
+from natsort import natsorted
+
+from .fasta import RevComp, codon_table, fasta2dict, fasta2headers, getSeqRegions, translate
+from .utils import zopen
 
 
 def start_end_gap(seq, coords):
@@ -110,7 +105,7 @@ def _gff_default_parser(gff, fasta, Genes):
             try:
                 k, v = field.split("=", 1)
                 info[k] = v.strip()
-            except (IndexError, ValueError) as E:
+            except (IndexError, ValueError):
                 pass
         # now can lookup in info dict for values
         ID = info.get("ID", None)
@@ -554,17 +549,13 @@ def _gff_miniprot_parser(gff, fasta, Genes):
         start = int(start)
         end = int(end)
         ID = None
-        Parent = None
         Name = None
-        Product = None
-        GeneFeature = None
-        gbkey = None
         info = {}
         for field in attributes.split(";"):
             try:
                 k, v = field.split("=", 1)
                 info[k] = v.strip()
-            except (IndexError, ValueError) as E:
+            except (IndexError, ValueError):
                 pass
         # now can lookup in info dict for values
         ID = info.get("ID", None)
@@ -710,17 +701,13 @@ def _gff_alignment_parser(gff, fasta, Genes):
         start = int(start)
         end = int(end)
         ID = None
-        Parent = None
         Name = None
-        Product = None
-        GeneFeature = None
-        gbkey = None
         info = {}
         for field in attributes.split(";"):
             try:
                 k, v = field.split("=", 1)
                 info[k] = v.strip()
-            except (IndexError, ValueError) as E:
+            except (IndexError, ValueError):
                 pass
         # now can lookup in info dict for values
         ID = info.get("ID", None)
@@ -853,7 +840,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
             try:
                 k, v = field.split("=", 1)
                 info[k] = v.strip()
-            except (IndexError, ValueError) as E:
+            except (IndexError, ValueError):
                 pass
         # now can lookup in info dict for values
         ID = info.get("ID", None)
@@ -1241,9 +1228,7 @@ def _gff_ncbi_parser(gff, fasta, Genes):
     return Genes, errors
 
 
-def validate_models(
-    annotation, fadict, logger=sys.stderr.write, table=1, gap_filter=False
-):
+def validate_models(annotation, fadict, logger=sys.stderr.write, table=1, gap_filter=False):
     if isinstance(logger, types.BuiltinFunctionType):
         log = logger
     else:
@@ -1286,9 +1271,7 @@ def validate_models(
             "product",
         ]:
             if len(annotation[gene]["ids"]) != len(annotation[gene][z]):
-                assert_lengths_fail.append(
-                    (z, annotation[gene][z], len(annotation[gene][z]))
-                )
+                assert_lengths_fail.append((z, annotation[gene][z], len(annotation[gene][z])))
         if len(assert_lengths_fail) > 0:
             log(
                 "ERROR in parsing gene {}\n{}\n{}\n".format(
@@ -1348,13 +1331,9 @@ def validate_and_translate_models(
                 if v["strand"] == "+":
                     sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0])
                 else:
-                    sortedCDS = sorted(
-                        v["CDS"][i], key=lambda tup: tup[0], reverse=True
-                    )
+                    sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0], reverse=True)
                 # get the codon_start by getting first CDS phase + 1
-                indexStart = [
-                    x for x, y in enumerate(v["CDS"][i]) if y[0] == sortedCDS[0][0]
-                ]
+                indexStart = [x for x, y in enumerate(v["CDS"][i]) if y[0] == sortedCDS[0][0]]
                 cdsSeq = getSeqRegions(SeqRecords, v["contig"], sortedCDS)
                 if gap_filter:
                     cdsSeq, v["CDS"][i] = start_end_gap(cdsSeq, v["CDS"][i])
@@ -1377,11 +1356,10 @@ def validate_and_translate_models(
                     try:
                         codon_start = int(v["phase"][i][indexStart[0]]) + 1
                     except IndexError:
-                        pass
+                        # Default to 1 if index is out of range
+                        codon_start = 1
                     # translate and get protein sequence
-                    protSeq = translate(
-                        cdsSeq, v["strand"], codon_start - 1, table=table
-                    )
+                    protSeq = translate(cdsSeq, v["strand"], codon_start - 1, table=table)
                 results["codon_start"].append(codon_start)
                 if codon_start > 1:
                     if v["strand"] == "+":
@@ -1390,11 +1368,7 @@ def validate_and_translate_models(
                         endTrunc = len(cdsSeq) - codon_start - 1
                         cdsSeq = cdsSeq[0:endTrunc]
                     else:
-                        log(
-                            "ERROR nonsensical strand ({}) for gene {}\n".format(
-                                [v["strand"], v["ids"][i]]
-                            )
-                        )
+                        log(f"ERROR nonsensical strand ({v['strand']}) for gene {v['ids'][i]}")
                 results["cds_transcript"].append(cdsSeq)
                 results["CDS"].append(sortedCDS)
                 results["protein"].append(protSeq)
@@ -1509,9 +1483,7 @@ def _longest_orf(annot, fadict, minlen=50, table=1):
             searchSeq = mrnaSeq.upper()
         # get all possible ORFs from the mRNA sequence
         valid_starts = "|".join(codon_table[table]["start"])
-        allORFS = re.findall(
-            rf"((?:{valid_starts})(?:\S{{3}})*?T(?:AG|AA|GA))", searchSeq
-        )
+        allORFS = re.findall(rf"((?:{valid_starts})(?:\S{{3}})*?T(?:AG|AA|GA))", searchSeq)
         longestORF = None
         # if you found ORFs, then we'll get the longest one and see if meets criterea
         if len(allORFS) > 0:
@@ -1643,7 +1615,7 @@ def _gtf_default_parser(gtf, fasta, Genes, gtf_format="default"):
             try:
                 k, v = field.rsplit(" ", 1)
                 info[k.strip()] = v.strip().replace('"', "")
-            except (IndexError, ValueError) as E:
+            except (IndexError, ValueError):
                 pass
         # now we can do add to dictionary these parsed values
         # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
@@ -2018,7 +1990,7 @@ def _gtf_genemark_parser(gtf, fasta, Genes, gtf_format="genemark"):
             try:
                 k, v = field.rsplit(" ", 1)
                 info[k.strip()] = v.strip().replace('"', "")
-            except (IndexError, ValueError) as E:
+            except (IndexError, ValueError):
                 pass
         # now we can do add to dictionary these parsed values
         # genbank gff files are incorrect for tRNA so check if gbkey exists and make up gene on the fly
@@ -2241,7 +2213,7 @@ def _gtf_jgi_parser(gtf, fasta, Genes, gtf_format="jgi"):
             try:
                 k, v = field.rsplit(" ", 1)
                 info[k.strip()] = v.strip().replace('"', "")
-            except (IndexError, ValueError) as E:
+            except (IndexError, ValueError):
                 pass
         # we can get the ID
         ID = info.get("name", None)
@@ -2416,9 +2388,7 @@ def gtf2dict(
                     logger("{}\n".format("\n".join(print_errors)))
     if debug:
         logger(
-            "Parsed {} contigs containing {} gene models\n".format(
-                len(SeqRecords), len(annotation)
-            )
+            "Parsed {} contigs containing {} gene models\n".format(len(SeqRecords), len(annotation))
         )
     # loop through and make sure CDS and exons are properly sorted and codon_start is correct, translate to protein space
     annotation = validate_models(
@@ -2512,9 +2482,7 @@ def gff2dict(
                     logger("{}\n".format("\n".join(print_errors)))
     if debug:
         logger(
-            "Parsed {} contigs containing {} gene models\n".format(
-                len(SeqRecords), len(annotation)
-            )
+            "Parsed {} contigs containing {} gene models\n".format(len(SeqRecords), len(annotation))
         )
     # loop through and make sure CDS and exons are properly sorted and codon_start is correct, translate to protein space
     annotation = validate_models(
@@ -2646,17 +2614,11 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False):
             else:
                 sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0], reverse=True)
                 if v["type"][i] == "mRNA":
-                    sortedCDS = sorted(
-                        v["CDS"][i], key=lambda tup: tup[0], reverse=True
-                    )
+                    sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0], reverse=True)
                 if "5UTR" in v and v["5UTR"][i]:
-                    sortedFive = sorted(
-                        v["5UTR"][i], key=lambda tup: tup[0], reverse=True
-                    )
+                    sortedFive = sorted(v["5UTR"][i], key=lambda tup: tup[0], reverse=True)
                 if "3UTR" in v and v["3UTR"][i]:
-                    sortedThree = sorted(
-                        v["3UTR"][i], key=lambda tup: tup[0], reverse=True
-                    )
+                    sortedThree = sorted(v["3UTR"][i], key=lambda tup: tup[0], reverse=True)
             # build extra annotations for each transcript if applicable
             extraAnnotations = ""
             if "gene_synonym" in v and len(v["gene_synonym"]) > 0:
@@ -2677,7 +2639,9 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False):
                     ",".join(v["EC_number"][i])
                 )
             if len(v["note"][i]) > 0:
-                CleanedNote = []  # need to make sure no commas or semi-colons in these data else will cause problems in parsing GFF3 output downstream
+                CleanedNote = (
+                    []
+                )  # need to make sure no commas or semi-colons in these data else will cause problems in parsing GFF3 output downstream
                 for x in v["note"][i]:
                     if ";" in x:
                         x = x.replace(";", ".")
@@ -2690,9 +2654,7 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False):
                                 CleanedNote.append(base + ":" + y)
                     else:
                         CleanedNote.append(x.replace(",", ""))
-                extraAnnotations = extraAnnotations + "Note={:};".format(
-                    ",".join(CleanedNote)
-                )
+                extraAnnotations = extraAnnotations + "Note={:};".format(",".join(CleanedNote))
             # now write mRNA feature
             gffout.write(
                 "{:}\t{:}\t{:}\t{:}\t{:}\t.\t{:}\t.\tID={:};Parent={:};product={:};{:}\n".format(
@@ -2783,8 +2745,7 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False):
                         )
                     )
                     current_phase = (
-                        current_phase
-                        - (int(sortedCDS[y][1]) - int(sortedCDS[y][0]) + 1)
+                        current_phase - (int(sortedCDS[y][1]) - int(sortedCDS[y][0]) + 1)
                     ) % 3
                     if current_phase == 3:
                         current_phase = 0
@@ -2888,9 +2849,7 @@ def dict2gtf(infile, output=False, source=False):
                         )
                     )
                 else:
-                    current_phase = (
-                        current_phase - (int(cds[1]) - int(cds[0]) + 1)
-                    ) % 3
+                    current_phase = (current_phase - (int(cds[1]) - int(cds[0]) + 1)) % 3
                     if current_phase == 3:
                         current_phase = 0
                     if v["strand"] == "+":

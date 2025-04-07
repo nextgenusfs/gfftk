@@ -48,4 +48,3 @@ gene models or not, and then output in an a python OrderedDict(). The structure 
       '3UTR': [[(),()]] #list of lists of tuples (start, end)
       }
    }
-

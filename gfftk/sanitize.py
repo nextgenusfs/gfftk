@@ -1,4 +1,4 @@
-from .gff import gff2dict, dict2gff3
+from .gff import dict2gff3, gff2dict
 
 
 def sanitize(args):

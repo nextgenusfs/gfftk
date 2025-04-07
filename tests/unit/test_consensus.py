@@ -2,12 +2,9 @@
 Unit tests for the consensus module.
 """
 
-import os
-import pytest
-from gfftk.consensus import (
-    get_overlap,
-    contained,
-)
+# No imports needed here
+
+from gfftk.consensus import contained, get_overlap
 
 
 class TestConsensusHelpers:

@@ -1,18 +1,20 @@
+import datetime
+import gzip
+import io
+import os
+import shutil
+import subprocess
 import sys
+import uuid
+
+import gb_io
 import numpy as np
 from natsort import natsorted
-from .fasta import getSeqRegions, fasta2dict, translate
-from .utils import zopen, readBlocks2
+
+from .fasta import fasta2dict, getSeqRegions, translate
 from .go import go_term_dict
 from .interlap import InterLap
-import io
-import gzip
-import os
-import subprocess
-import uuid
-import shutil
-import gb_io
-import datetime
+from .utils import readBlocks2, zopen
 
 
 def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
@@ -103,9 +105,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                     Name = x.strip().split("\t")[-1]
                 elif x.startswith("\t\t\tlocus_tag\t"):
                     geneID = x.strip().split("\t")[-1]
-                elif (
-                    x.endswith("\ttRNA\n") and x.count("\t") == 2 and position == "gene"
-                ):
+                elif x.endswith("\ttRNA\n") and x.count("\t") == 2 and position == "gene":
                     type = "tRNA"
                     position = "tRNA"
                     cols = x.strip().split("\t")
@@ -115,11 +115,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                         mRNA[currentNum].append((exonF, exonR))
                     else:
                         mRNA[currentNum].append((exonR, exonF))
-                elif (
-                    x.endswith("\tncRNA\n")
-                    and x.count("\t") == 2
-                    and position == "gene"
-                ):
+                elif x.endswith("\tncRNA\n") and x.count("\t") == 2 and position == "gene":
                     type = "ncRNA"
                     position = "ncRNA"
                     cols = x.strip().split("\t")
@@ -129,9 +125,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                         mRNA[currentNum].append((exonF, exonR))
                     else:
                         mRNA[currentNum].append((exonR, exonF))
-                elif (
-                    x.endswith("\trRNA\n") and x.count("\t") == 2 and position == "gene"
-                ):
+                elif x.endswith("\trRNA\n") and x.count("\t") == 2 and position == "gene":
                     type = "rRNA"
                     position = "rRNA"
                     cols = x.strip().split("\t")
@@ -182,9 +176,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                 elif x.startswith("\t\t\tgene_synonym\t"):
                     synonyms.append(x.strip().split("\t")[-1])
                 elif x.startswith("\t\t\tgo_"):  # go terms
-                    go_terms[currentNum].append(
-                        "GO:{:}".format(x.strip().split("|")[1])
-                    )
+                    go_terms[currentNum].append("GO:{:}".format(x.strip().split("|")[1]))
                 elif x.startswith("\t\t\tnote\t"):
                     note[currentNum].append(x.strip().split("\t")[-1])
                 elif x.startswith("\t\t\tdb_xref\t"):
@@ -294,9 +286,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                 if v["strand"] == "+":
                     sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0])
                 else:
-                    sortedExons = sorted(
-                        v["mRNA"][i], key=lambda tup: tup[0], reverse=True
-                    )
+                    sortedExons = sorted(v["mRNA"][i], key=lambda tup: tup[0], reverse=True)
                 annotation[k]["mRNA"][i] = sortedExons
                 mrnaSeq = getSeqRegions(SeqRecords, v["contig"], sortedExons)
                 annotation[k]["transcript"].append(mrnaSeq)
@@ -304,9 +294,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                 if v["strand"] == "+":
                     sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0])
                 else:
-                    sortedCDS = sorted(
-                        v["CDS"][i], key=lambda tup: tup[0], reverse=True
-                    )
+                    sortedCDS = sorted(v["CDS"][i], key=lambda tup: tup[0], reverse=True)
                 cdsSeq = getSeqRegions(SeqRecords, v["contig"], sortedCDS)
                 # If the translation starts in middle of a codon,
                 # we need to truncate the CDS seq either at start or end
@@ -324,9 +312,7 @@ def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
                         cdsSeq = cdsSeq[0:endTrunc]
                     else:
                         # could trigger more of a warning/error
-                        errors.append(
-                            "ERROR strand (%s) is nonsensical for %s" % (v["strand"], k)
-                        )
+                        errors.append("ERROR strand (%s) is nonsensical for %s" % (v["strand"], k))
                 annotation[k]["cds_transcript"].append(cdsSeq)
                 annotation[k]["CDS"][i] = sortedCDS
                 protSeq = translate(cdsSeq, v["strand"], 0, table=table)
@@ -489,11 +475,7 @@ def dict2tbl(
                 duplicates += len(dups)
             if not geneInfo["ids"]:
                 continue
-            if (
-                not len(geneInfo["ids"])
-                == len(geneInfo["mRNA"])
-                == len(geneInfo["CDS"])
-            ):
+            if not len(geneInfo["ids"]) == len(geneInfo["mRNA"]) == len(geneInfo["CDS"]):
                 continue
             # print(genes, geneInfo['note'])
             # check for partial models
@@ -571,8 +553,7 @@ def dict2tbl(
                                 )
                             elif num == 0:
                                 tbl.write(
-                                    "%s%s\t%s\t%s\n"
-                                    % (ps, exon[0], exon[1], geneInfo["type"][i])
+                                    "%s%s\t%s\t%s\n" % (ps, exon[0], exon[1], geneInfo["type"][i])
                                 )
                             # this is last one
                             elif num == len(geneInfo["mRNA"][i]) - 1:
@@ -580,17 +561,13 @@ def dict2tbl(
                             else:
                                 tbl.write("%s\t%s\n" % (exon[0], exon[1]))
                         tbl.write("\t\t\tproduct\t%s\n" % geneInfo["product"][i])
-                        tbl.write(
-                            "\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id)
-                        )
+                        tbl.write("\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id))
                         if geneInfo["type"][i] == "mRNA":
                             tbl.write("\t\t\tprotein_id\tgnl|ncbi|%s\n" % (protein_id))
                             for num, cds in enumerate(geneInfo["CDS"][i]):
                                 # single exon, so slightly differnt method
                                 if num == 0 and num == len(geneInfo["CDS"][i]) - 1:
-                                    tbl.write(
-                                        "%s%s\t%s%s\tCDS\n" % (ps, cds[0], pss, cds[1])
-                                    )
+                                    tbl.write("%s%s\t%s%s\tCDS\n" % (ps, cds[0], pss, cds[1]))
                                 elif num == 0:
                                     tbl.write("%s%s\t%s\tCDS\n" % (ps, cds[0], cds[1]))
                                 # this is last one
@@ -598,9 +575,7 @@ def dict2tbl(
                                     tbl.write("%s\t%s%s\n" % (cds[0], pss, cds[1]))
                                 else:
                                     tbl.write("%s\t%s\n" % (cds[0], cds[1]))
-                            tbl.write(
-                                "\t\t\tcodon_start\t%i\n" % geneInfo["codon_start"][i]
-                            )
+                            tbl.write("\t\t\tcodon_start\t%i\n" % geneInfo["codon_start"][i])
                             if annotations:  # write functional annotation
                                 if geneInfo["EC_number"][i]:
                                     for EC in geneInfo["EC_number"][i]:
@@ -617,9 +592,7 @@ def dict2tbl(
                                     for item in geneInfo["note"][i]:
                                         tbl.write("\t\t\tnote\t%s\n" % item)
                             tbl.write("\t\t\tproduct\t%s\n" % geneInfo["product"][i])
-                            tbl.write(
-                                "\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id)
-                            )
+                            tbl.write("\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id))
                             tbl.write("\t\t\tprotein_id\tgnl|ncbi|%s\n" % (protein_id))
                     else:  # means this is on crick strand
                         for num, exon in enumerate(geneInfo["mRNA"][i]):
@@ -631,8 +604,7 @@ def dict2tbl(
                                 )
                             elif num == 0:
                                 tbl.write(
-                                    "%s%s\t%s\t%s\n"
-                                    % (ps, exon[1], exon[0], geneInfo["type"][i])
+                                    "%s%s\t%s\t%s\n" % (ps, exon[1], exon[0], geneInfo["type"][i])
                                 )
                             # this is last one
                             elif num == len(geneInfo["mRNA"][i]) - 1:
@@ -640,17 +612,13 @@ def dict2tbl(
                             else:
                                 tbl.write("%s\t%s\n" % (exon[1], exon[0]))
                         tbl.write("\t\t\tproduct\t%s\n" % geneInfo["product"][i])
-                        tbl.write(
-                            "\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id)
-                        )
+                        tbl.write("\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id))
                         if geneInfo["type"][i] == "mRNA":
                             tbl.write("\t\t\tprotein_id\tgnl|ncbi|%s\n" % (protein_id))
                             for num, cds in enumerate(geneInfo["CDS"][i]):
                                 # single exon, so slightly differnt method
                                 if num == 0 and num == len(geneInfo["CDS"][i]) - 1:
-                                    tbl.write(
-                                        "%s%s\t%s%s\tCDS\n" % (ps, cds[1], pss, cds[0])
-                                    )
+                                    tbl.write("%s%s\t%s%s\tCDS\n" % (ps, cds[1], pss, cds[0]))
                                 elif num == 0:
                                     tbl.write("%s%s\t%s\tCDS\n" % (ps, cds[1], cds[0]))
                                 # this is last one
@@ -658,9 +626,7 @@ def dict2tbl(
                                     tbl.write("%s\t%s%s\n" % (cds[1], pss, cds[0]))
                                 else:
                                     tbl.write("%s\t%s\n" % (cds[1], cds[0]))
-                            tbl.write(
-                                "\t\t\tcodon_start\t%i\n" % geneInfo["codon_start"][i]
-                            )
+                            tbl.write("\t\t\tcodon_start\t%i\n" % geneInfo["codon_start"][i])
                             if annotations:  # write functional annotation
                                 if geneInfo["EC_number"][i]:
                                     for EC in geneInfo["EC_number"][i]:
@@ -677,18 +643,13 @@ def dict2tbl(
                                     for item in geneInfo["note"][i]:
                                         tbl.write("\t\t\tnote\t%s\n" % item)
                             tbl.write("\t\t\tproduct\t%s\n" % geneInfo["product"][i])
-                            tbl.write(
-                                "\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id)
-                            )
+                            tbl.write("\t\t\ttranscript_id\tgnl|ncbi|%s_mrna\n" % (protein_id))
                             tbl.write("\t\t\tprotein_id\tgnl|ncbi|%s\n" % (protein_id))
                 elif geneInfo["type"][i] == "tRNA":
                     if geneInfo["strand"] == "+":
                         for num, exon in enumerate(geneInfo["mRNA"][i]):
                             if num == 0:
-                                tbl.write(
-                                    "%s\t%s\t%s\n"
-                                    % (exon[0], exon[1], geneInfo["type"][i])
-                                )
+                                tbl.write("%s\t%s\t%s\n" % (exon[0], exon[1], geneInfo["type"][i]))
                             else:
                                 tbl.write("%s\t%s\n" % (exon[0], exon[1]))
                         tbl.write("\t\t\tproduct\t%s\n" % geneInfo["product"][i])
@@ -697,10 +658,7 @@ def dict2tbl(
                     else:
                         for num, exon in enumerate(geneInfo["mRNA"][i]):
                             if num == 0:
-                                tbl.write(
-                                    "%s\t%s\t%s\n"
-                                    % (exon[1], exon[0], geneInfo["type"][i])
-                                )
+                                tbl.write("%s\t%s\t%s\n" % (exon[1], exon[0], geneInfo["type"][i]))
                             else:
                                 tbl.write("%s\t%s\n" % (exon[1], exon[0]))
                         tbl.write("\t\t\tproduct\t%s\n" % geneInfo["product"][i])
@@ -849,12 +807,8 @@ def dict2gbff(annots, seqs, outfile, organism=None, circular=False, lowercase=Fa
                 ],
             )
             if v["name"] is not None:
-                transcript_feature.qualifiers.append(
-                    gb_io.Qualifier("gene", value=v["name"])
-                )
-            transcript_feature.qualifiers.append(
-                gb_io.Qualifier("product", value=v["product"][i])
-            )
+                transcript_feature.qualifiers.append(gb_io.Qualifier("gene", value=v["name"]))
+            transcript_feature.qualifiers.append(gb_io.Qualifier("product", value=v["product"][i]))
             data[v["contig"]].append(transcript_feature)
             if v["type"][i] == "mRNA":  # then also write CDS feature
                 cds_feature = gb_io.Feature(
@@ -867,17 +821,11 @@ def dict2gbff(annots, seqs, outfile, organism=None, circular=False, lowercase=Fa
                 )
                 # now we add qualifiers annotation if exists
                 if v["name"] is not None:
-                    cds_feature.qualifiers.append(
-                        gb_io.Qualifier("gene", value=v["name"])
-                    )
-                cds_feature.qualifiers.append(
-                    gb_io.Qualifier("product", value=v["product"][i])
-                )
+                    cds_feature.qualifiers.append(gb_io.Qualifier("gene", value=v["name"]))
+                cds_feature.qualifiers.append(gb_io.Qualifier("product", value=v["product"][i]))
                 # here is more optional functional annotation
                 for ecm in v["EC_number"][i]:
-                    cds_feature.qualifiers.append(
-                        gb_io.Qualifier("EC_number", value=ecm)
-                    )
+                    cds_feature.qualifiers.append(gb_io.Qualifier("EC_number", value=ecm))
                 for dbx in v["db_xref"][i]:
                     cds_feature.qualifiers.append(gb_io.Qualifier("db_xref", value=dbx))
                 # GO terms go in the Note as well

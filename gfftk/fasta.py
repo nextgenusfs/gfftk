@@ -1,7 +1,7 @@
-from collections import OrderedDict
-from .utils import zopen
 import io
+from collections import OrderedDict
 
+from .utils import zopen
 
 codon_table = {
     1: {

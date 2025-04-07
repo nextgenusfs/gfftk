@@ -3,13 +3,15 @@ import json
 import os
 import random
 import sys
+import uuid
 from collections import Counter, OrderedDict, defaultdict
+
 import numpy as np
 from natsort import natsorted
-import uuid
+
+from . import interlap
 from .fasta import fastaparser
 from .gff import gff2dict
-from . import interlap
 from .log import startLogging, system_info
 from .utils import check_inputs, zopen
 
@@ -23,9 +25,7 @@ def consensus(args):
         log = logger.info
     system_info(log)
     logger.info(args)
-    check_inputs(
-        [args.fasta] + args.genes + args.proteins + args.transcripts + [args.repeats]
-    )
+    check_inputs([args.fasta] + args.genes + args.proteins + args.transcripts + [args.repeats])
     _ = generate_consensus(
         args.fasta,
         args.genes,
@@ -200,21 +200,15 @@ def generate_consensus(
                 # now see if model is contained on opposite strand, if so then skip
                 if v["strand"] == "+":
                     hits = list(
-                        minus_consensus[c].find(
-                            ((min(min(v["coords"])), max(max(v["coords"]))))
-                        )
+                        minus_consensus[c].find(((min(min(v["coords"])), max(max(v["coords"])))))
                     )
                 elif v["strand"] == "-":
                     hits = list(
-                        plus_consensus[c].find(
-                            ((min(min(v["coords"])), max(max(v["coords"]))))
-                        )
+                        plus_consensus[c].find(((min(min(v["coords"])), max(max(v["coords"])))))
                     )
                 if len(hits) > 0:
                     contain = [
-                        contained(
-                            (min(min(v["coords"])), max(max(v["coords"]))), (x[0], x[1])
-                        )
+                        contained((min(min(v["coords"])), max(max(v["coords"]))), (x[0], x[1]))
                         for x in hits
                     ]
                     if any(contain):
@@ -260,9 +254,7 @@ def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90, log=
         if repeats.endswith(".bed"):
             repeat_inter, repeat_length = bed2interlap(repeats, inter=repeat_inter)
         else:
-            repeat_inter, repeat_length = gff2interlap(
-                repeats, fasta, inter=repeat_inter
-            )
+            repeat_inter, repeat_length = gff2interlap(repeats, fasta, inter=repeat_inter)
     pct_repeats = repeat_length / float(seq_length)
     if log:
         log(
@@ -532,7 +524,7 @@ def gffevidence2dict(file, Evi):
                 try:
                     k, v = field.split("=")
                     fields[k] = v
-                except (IndexError, ValueError) as E:
+                except (IndexError, ValueError):
                     pass
             if "ID" not in fields:
                 continue
@@ -689,9 +681,7 @@ def score_by_evidence(locus, weights={}, derived=[]):
                 for x in locus[s]:
                     q_name, q_source, q_coords = x
                     score[s].append(
-                        score_evidence(
-                            coords[0], q_coords, weight=weights.get(source, 1)
-                        ),
+                        score_evidence(coords[0], q_coords, weight=weights.get(source, 1)),
                     )
             results[name] = {
                 "protein_evidence_score": sum(score["proteins"]),
@@ -804,16 +794,13 @@ def debug_gff_writer(outfile, contig, strand, data):
                     )
                 )
                 current_phase = (
-                    current_phase
-                    - (int(sortedCoords[y][1]) - int(sortedCoords[y][0]) + 1)
+                    current_phase - (int(sortedCoords[y][1]) - int(sortedCoords[y][0]) + 1)
                 ) % 3
                 if current_phase == 3:
                     current_phase = 0
 
 
-def reasonable_model(
-    coords, min_protein=30, min_exon=3, min_intron=10, max_intron=-1, max_exon=-1
-):
+def reasonable_model(coords, min_protein=30, min_exon=3, min_intron=10, max_intron=-1, max_exon=-1):
     # look at coordinates and check some stats
     exon_lengths = []
     intron_lengths = []
@@ -942,9 +929,7 @@ def best_model(
                 max_intron=max_intron,
                 max_exon=max_exon,
             )
-            tmp_sorted = sorted(
-                tmp_results.items(), key=lambda e: e[1]["score"], reverse=True
-            )
+            tmp_sorted = sorted(tmp_results.items(), key=lambda e: e[1]["score"], reverse=True)
             for model in tmp_sorted:
                 if model[0] not in seen:
                     seen.add(model[0])
@@ -1008,9 +993,7 @@ def best_model(
             best_score = best_result_filtered[0][1]["score"]
             anyties = [x for x in best_result_filtered if x[1]["score"] >= best_score]
             if len(anyties) > 1:
-                breaktie = sorted(
-                    anyties, key=lambda x: order[x[1]["source"]], reverse=True
-                )
+                breaktie = sorted(anyties, key=lambda x: order[x[1]["source"]], reverse=True)
                 bm = [random.choice(breaktie)]
             else:
                 bm = [anyties[0]]
@@ -1208,9 +1191,7 @@ def score_evidence(g_coords, e_coords, weight=2):
         base_score = sum(mult) // len(g_coords)
 
         # Calculate percent coverage
-        percent_coverage = (
-            total_overlap / total_gene_length if total_gene_length > 0 else 0
-        )
+        percent_coverage = total_overlap / total_gene_length if total_gene_length > 0 else 0
 
         # Adjust score based on coverage
         score = int(base_score * (0.5 + 0.5 * percent_coverage)) * weight
@@ -1265,7 +1246,7 @@ def calculate_source_order(data):
             aweight = sum(v) // len(v)
             sweights.append((k, aweight))
             avgweights.append(aweight)
-        min_weight = min(avgweights)
+        # min_weight = min(avgweights)  # Not used
         order = (
             OrderedDict()
         )  # y[0] for y in sorted(sweights.items(), key=lambda x: x[1], reverse=True)]
@@ -1303,9 +1284,7 @@ def src_scaling_factor(obj):
     src = []
     for k, v in obj.items():
         if v < 1.0:  # means some overlap
-            src.append(
-                k.rsplit(".", 1)[-1]
-            )  # this works because src slug is appended to each name
+            src.append(k.rsplit(".", 1)[-1])  # this works because src slug is appended to each name
     dups = Counter(src)
     if len(dups) > 0:
         # there are some legit cases where this is perhaps problematic....
@@ -1328,9 +1307,7 @@ def de_novo_distance(locus):
             total = float(sum(v.values()))
             # we can measure the sources of overlap via the unique slug in each value
             scaling_factor = src_scaling_factor(v)
-            assert len(locus["genes"]) == len(v) + 1, (
-                "ERROR, AED distance calculation failed"
-            )
+            assert len(locus["genes"]) == len(v) + 1, "ERROR, AED distance calculation failed"
             results[k] = ((len(locus["genes"])) - total) * scaling_factor
     else:  # single gene, so value here is 0
         geneID = locus["genes"][0][0]
@@ -1474,8 +1451,7 @@ def gff_writer(input, output):
                     )
                 )
                 current_phase = (
-                    current_phase
-                    - (int(sortedCoords[x][1]) - int(sortedCoords[x][0]) + 1)
+                    current_phase - (int(sortedCoords[x][1]) - int(sortedCoords[x][0]) + 1)
                 ) % 3
                 if current_phase == 3:
                     current_phase = 0

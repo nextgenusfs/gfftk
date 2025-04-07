@@ -4,13 +4,10 @@ Unit tests for the consensus module functions.
 
 import os
 import tempfile
-import pytest
-from gfftk.consensus import (
-    get_overlap,
-    contained,
-    auto_score_threshold,
-    fasta_length,
-)
+
+from gfftk.consensus import auto_score_threshold, contained, fasta_length, get_overlap
+
+# pytest is not used in this file
 
 
 class TestConsensusFunctions:

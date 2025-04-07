@@ -4,14 +4,8 @@ Unit tests for the fasta module.
 
 import os
 import tempfile
-from gfftk.fasta import (
-    fasta2dict,
-    fasta2headers,
-    RevComp,
-    translate,
-    getSeqRegions,
-    softwrap,
-)
+
+from gfftk.fasta import RevComp, fasta2dict, fasta2headers, getSeqRegions, softwrap, translate
 
 
 class TestFasta:
@@ -20,9 +14,7 @@ class TestFasta:
     def test_fasta2dict(self):
         """Test converting FASTA to dictionary."""
         # Create a temporary FASTA file
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".fasta"
-        ) as temp:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta") as temp:
             temp.write(">seq1\n")
             temp.write("ATGCATGCATGC\n")
             temp.write(">seq2\n")
@@ -63,9 +55,7 @@ class TestFasta:
     def test_fasta2headers(self):
         """Test extracting headers from FASTA."""
         # Create a temporary FASTA file
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".fasta"
-        ) as temp:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta") as temp:
             temp.write(">seq1 description 1\n")
             temp.write("ATGCATGCATGC\n")
             temp.write(">seq2 description 2\n")

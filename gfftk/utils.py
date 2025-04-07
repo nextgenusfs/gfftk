@@ -65,8 +65,8 @@ def which2(program):
 
 
 def open_pipe(command, mode="r", buff=1024 * 1024):
-    import subprocess
     import signal
+    import subprocess
 
     if "r" in mode:
         return subprocess.Popen(

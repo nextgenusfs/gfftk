@@ -1,8 +1,7 @@
 """
 Integration tests for the command-line interface.
 """
-import os
-import tempfile
+
 import subprocess
 
 
@@ -24,7 +23,7 @@ class TestCLI:
 
     def test_help_command(self):
         """Test the help command."""
-        returncode, stdout, stderr = run_command("python -m gfftk --help")
+        returncode, stdout, _ = run_command("python -m gfftk --help")
         assert returncode == 0
         assert "usage:" in stdout
         # The module name might be __main__.py instead of gfftk
@@ -32,6 +31,6 @@ class TestCLI:
 
     def test_version_command(self):
         """Test the version command."""
-        returncode, stdout, stderr = run_command("python -m gfftk --version")
+        returncode, stdout, _ = run_command("python -m gfftk --version")
         assert returncode == 0
         assert "gfftk" in stdout or "GFFtk" in stdout

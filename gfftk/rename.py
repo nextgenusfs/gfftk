@@ -1,6 +1,8 @@
-from .gff import gff2dict, dict2gff3
-from natsort import natsorted
 from collections import OrderedDict
+
+from natsort import natsorted
+
+from .gff import dict2gff3, gff2dict
 
 
 def rename(args):

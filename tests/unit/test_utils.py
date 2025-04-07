@@ -4,14 +4,8 @@ Unit tests for the utils module.
 
 import os
 import tempfile
-from gfftk.utils import (
-    readBlocks,
-    readBlocks2,
-    check_inputs,
-    is_file,
-    which2,
-    zopen,
-)
+
+from gfftk.utils import check_inputs, is_file, readBlocks, readBlocks2, which2, zopen
 
 
 class TestUtils:
@@ -72,9 +66,7 @@ class TestUtils:
             try:
                 check_inputs([temp1_name, "nonexistent.txt"])
                 # If we get here, the function didn't raise an exception
-                assert False, (
-                    "check_inputs should raise FileNotFoundError for non-existent files"
-                )
+                assert False, "check_inputs should raise FileNotFoundError for non-existent files"
             except FileNotFoundError:
                 # This is the expected behavior
                 pass

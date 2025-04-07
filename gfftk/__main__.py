@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 
-import sys
-import os
 import argparse
+import os
+import sys
+
 from .__init__ import __version__
-from .help_formatter import MyParser, MyHelpFormatter
+from .compare import compare
 from .consensus import consensus
 from .convert import convert
-from .sort import sort
-from .sanitize import sanitize
+from .help_formatter import MyHelpFormatter, MyParser
 from .rename import rename
+from .sanitize import sanitize
+from .sort import sort
 from .stats import stats
-from .compare import compare
 
 
 def main():
@@ -34,9 +35,7 @@ def main():
 
 def parse_args(args):
     description = "GFFtk: tool kit for GFF3 genome annotation manipulation"
-    parser = MyParser(
-        description=description, formatter_class=MyHelpFormatter, add_help=False
-    )
+    parser = MyParser(description=description, formatter_class=MyHelpFormatter, add_help=False)
     subparsers = parser.add_subparsers(title="Commands", dest="subparser_name")
     # add subtools here
     consensus_subparser(subparsers)
@@ -185,9 +184,7 @@ def consensus_subparser(subparsers):
     optional_args.add_argument(
         "--silent", action="store_true", help="do not write anything to terminal/stderr"
     )
-    optional_args.add_argument(
-        "--debug", action="store_true", help="write/keep intermediate files"
-    )
+    optional_args.add_argument("--debug", action="store_true", help="write/keep intermediate files")
 
     other_args = group.add_argument_group("Other arguments")
     other_args.add_argument(
@@ -320,9 +317,7 @@ def sort_subparser(subparsers):
     )
 
     required_args = group.add_argument_group("Required arguments")
-    required_args.add_argument(
-        "-g", "--gff3", required=True, help="GFF3 file to sort", metavar=""
-    )
+    required_args.add_argument("-g", "--gff3", required=True, help="GFF3 file to sort", metavar="")
 
     optional_args = group.add_argument_group("Optional arguments")
     optional_args.add_argument(
@@ -371,9 +366,7 @@ def sanitize_subparser(subparsers):
         help="write santized GFF3 output to file (default: stdout)",
         metavar="",
     )
-    optional_args.add_argument(
-        "--debug", action="store_true", help="write/keep intermediate files"
-    )
+    optional_args.add_argument("--debug", action="store_true", help="write/keep intermediate files")
 
     other_args = group.add_argument_group("Other arguments")
     other_args.add_argument(

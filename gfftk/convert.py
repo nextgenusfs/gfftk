@@ -1,12 +1,14 @@
-import sys
-from natsort import natsorted
-from collections import OrderedDict
-from .utils import zopen, check_inputs, which2
-from .fasta import softwrap, RevComp, fasta2lengths
-from .gff import gff2dict, dict2gff3, dict2gtf, gtf2dict
-from .genbank import tbl2dict, dict2tbl, table2asn
-import uuid
 import os
+import sys
+import uuid
+from collections import OrderedDict
+
+from natsort import natsorted
+
+from .fasta import RevComp, fasta2lengths, softwrap
+from .genbank import dict2tbl, table2asn, tbl2dict
+from .gff import dict2gff3, dict2gtf, gff2dict, gtf2dict
+from .utils import check_inputs, which2, zopen
 
 
 def convert(args):
@@ -19,9 +21,7 @@ def convert(args):
         elif args.input.endswith((".gtf")):
             args.input_format = "gtf"
         else:
-            sys.stderr.write(
-                "Error: unable to determine -i,--input format: {}".format(args.input)
-            )
+            sys.stderr.write("Error: unable to determine -i,--input format: {}".format(args.input))
             raise SystemExit(1)
     if not args.output_format:  # guess again
         if args.out.endswith((".tbl", ".tbl.gz")):
@@ -38,9 +38,7 @@ def convert(args):
                 )
                 raise SystemExit(1)
         else:
-            sys.stderr.write(
-                "Error: unable to determine -o,--output format: {}".format(args.out)
-            )
+            sys.stderr.write("Error: unable to determine -o,--output format: {}".format(args.out))
             raise SystemExit(1)
     # okay now we can load and convert
     if args.input_format == "tbl":
@@ -231,9 +229,7 @@ def _dict2proteins(input, output=False, strip_stop=False):
         for i in range(0, len(v["ids"])):
             if v["type"][i] == "mRNA" and not v["CDS"][i]:
                 continue
-            if v["type"][i] == "mRNA" and not len(v["ids"]) == len(v["mRNA"]) == len(
-                v["CDS"]
-            ):
+            if v["type"][i] == "mRNA" and not len(v["ids"]) == len(v["mRNA"]) == len(v["CDS"]):
                 continue
             if v["type"][i] == "mRNA":
                 try:
@@ -380,9 +376,7 @@ def tbl2gtf(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
     dict2gtf(Genes, output=output)
 
 
-def tbl2proteins(
-    tbl, fasta, output=False, table=1, strip_stop=False, grep=[], grepv=[]
-):
+def tbl2proteins(tbl, fasta, output=False, table=1, strip_stop=False, grep=[], grepv=[]):
     """Convert NCBI TBL format to translated protein FASTA format.
 
     Will parse NCBI TBL format into GFFtk annotation dictionary and then write protein coding
@@ -464,9 +458,7 @@ def gff2transcripts(gff, fasta, output=False, table=1, debug=False, grep=[], gre
     _dict2transcripts(Genes, output=output)
 
 
-def gff2cdstranscripts(
-    gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]
-):
+def gff2cdstranscripts(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GFF3 format to CDS transcript [no UTRs] FASTA format.
 
     Will parse GFF3 format into GFFtk annotation dictionary and then write
@@ -898,9 +890,7 @@ def gtf2transcripts(gff, fasta, output=False, table=1, debug=False, grep=[], gre
     _dict2transcripts(Genes, output=output)
 
 
-def gtf2cdstranscripts(
-    gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]
-):
+def gtf2cdstranscripts(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
     """Convert GTF format to CDS transcript [no UTRs] FASTA format.
 
     Will parse GFF3 format into GFFtk annotation dictionary and then write

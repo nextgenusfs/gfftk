@@ -1,5 +1,6 @@
-from .utils import zopen, readBlocks
 import os
+
+from .utils import readBlocks, zopen
 
 
 def go_term_dict():
