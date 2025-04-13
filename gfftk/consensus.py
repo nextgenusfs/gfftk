@@ -414,6 +414,22 @@ def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90, log=
 
 
 def fasta_length(fasta):
+    """
+    Calculate the total length of all sequences in a FASTA file.
+
+    This function reads a FASTA file and sums the lengths of all sequences in the file.
+    It can be used to determine the total genome size from a genome FASTA file.
+
+    Parameters:
+    -----------
+    fasta : str
+        Path to the FASTA file
+
+    Returns:
+    --------
+    int
+        Total length of all sequences in the FASTA file
+    """
     length = 0
     with zopen(fasta) as infile:
         for title, seq in fastaparser(infile):
@@ -423,7 +439,26 @@ def fasta_length(fasta):
 
 def gff2interlap(infile, fasta, inter=False):
     """
-    function to parse GFF3 file, construct scaffold/gene interlap dictionary
+    Parse a GFF3 file and construct a scaffold/gene interlap dictionary.
+
+    This function reads a GFF3 file and creates an interlap object containing the genomic
+    features defined in the file. The interlap object allows for efficient overlap queries.
+
+    Parameters:
+    -----------
+    infile : str
+        Path to the GFF3 file
+    fasta : str
+        Path to the genome FASTA file
+    inter : dict or bool, optional
+        Existing interlap object to update, or False to create a new one (default: False)
+
+    Returns:
+    --------
+    tuple
+        A tuple containing:
+        - inter: Dictionary mapping contig names to interlap objects containing features
+        - length: Total length of all features in the GFF3 file
     """
     length = 0
     if not inter:
@@ -544,9 +579,9 @@ def contained(a, b):
             return False
 
         # Check if a is contained in b
-        # a is contained in b if a_start > b_start and a_end < b_end
-        # Identical ranges are not considered contained
-        if a_start > b_start and a_end < b_end:
+        # a is contained in b if a_start >= b_start and a_end <= b_end
+        # but not if they are identical
+        if a_start >= b_start and a_end <= b_end and not (a_start == b_start and a_end == b_end):
             return True
     except (ValueError, TypeError):
         # If conversion fails, return False
@@ -679,6 +714,28 @@ def gffevidence2dict(file, Evi):
 
 
 def add_evidence(loci, evidence, source="proteins"):
+    """
+    Add evidence alignments to loci based on genomic coordinates.
+
+    This function associates evidence alignments (proteins or transcripts) with gene loci
+    based on their genomic coordinates. It builds interlap objects for efficient overlap
+    queries and adds the evidence to each locus that it overlaps with.
+
+    Parameters:
+    -----------
+    loci : dict
+        Hierarchical dictionary of loci organized by contig and strand
+        {contig: {"+": [locus1, locus2, ...], "-": [locus1, locus2, ...]}}
+    evidence : dict
+        Dictionary of evidence alignments
+    source : str, optional
+        Type of evidence being added, either "proteins" or "transcripts" (default: "proteins")
+
+    Returns:
+    --------
+    None
+        The function modifies the loci dictionary in place
+    """
     # here we will build interlap obj of evidence
     # then loop through loci and pull in evidence that aligns to each locus
     plus_inter = defaultdict(interlap.InterLap)
@@ -712,6 +769,23 @@ def add_evidence(loci, evidence, source="proteins"):
 
 
 def ensure_unique_names(genes):
+    """
+    Ensure gene model names are unique by appending a UUID slug.
+
+    This function takes a dictionary of gene models and appends a unique identifier
+    to each gene model name to ensure there are no name collisions when combining
+    gene models from multiple sources.
+
+    Parameters:
+    -----------
+    genes : dict
+        Dictionary of gene models where keys are gene IDs
+
+    Returns:
+    --------
+    dict
+        Dictionary of gene models with unique IDs
+    """
     # takes annotation dictionary and appends unique slug
     slug = str(uuid.uuid4())[:8]
     cleaned = {}
@@ -721,6 +795,33 @@ def ensure_unique_names(genes):
 
 
 def parse_data(genome, gene, protein, transcript, log=sys.stderr.write):
+    """
+    Parse input data files and build a locus data structure.
+
+    This function reads gene prediction files, protein alignment files, and transcript
+    alignment files, and organizes them into a hierarchical locus data structure. It
+    assigns unique identifiers to gene models to avoid name collisions and tracks the
+    sources of all predictions and evidence.
+
+    Parameters:
+    -----------
+    genome : str
+        Path to the genome FASTA file
+    gene : list
+        List of paths to gene prediction GFF3 files
+    protein : list
+        List of paths to protein alignment GFF3 files
+    transcript : list
+        List of paths to transcript alignment GFF3 files
+    log : callable, optional
+        Function to use for logging (default: sys.stderr.write)
+
+    Returns:
+    --------
+    dict
+        Hierarchical dictionary of loci organized by contig and strand
+        {contig: {"+": [locus1, locus2, ...], "-": [locus1, locus2, ...]}}
+    """
     # parse the input data and build locus data structure
     # all inputs should be lists to support multiple inputs
     Preds = []
@@ -771,6 +872,30 @@ def parse_data(genome, gene, protein, transcript, log=sys.stderr.write):
 
 
 def filter4evidence(data, n_genes=3, n_evidence=2):
+    """
+    Filter loci to include only those with sufficient gene models and evidence alignments.
+
+    This function filters the loci data structure to include only loci that have at least
+    a specified number of gene models and evidence alignments (proteins + transcripts).
+    It is used to identify high-confidence loci for calculating source weights.
+
+    Parameters:
+    -----------
+    data : dict
+        Hierarchical dictionary of loci organized by contig and strand
+        {contig: {"+": [locus1, locus2, ...], "-": [locus1, locus2, ...]}}
+    n_genes : int, optional
+        Minimum number of gene models required in a locus (default: 3)
+    n_evidence : int, optional
+        Minimum number of evidence alignments (proteins + transcripts) required in a locus (default: 2)
+
+    Returns:
+    --------
+    tuple
+        A tuple containing:
+        - filt: Filtered dictionary of loci with sufficient gene models and evidence
+        - n_filt: Number of loci that passed the filter
+    """
     # here I want to return loci with at least n_genes and n_evidences
     filt = {}
     n_filt = 0
@@ -794,6 +919,30 @@ def filter4evidence(data, n_genes=3, n_evidence=2):
 
 
 def score_by_evidence(locus, weights={}, derived=[]):
+    """
+    Calculate evidence-based scores for gene models in a locus.
+
+    This function evaluates each gene model in a locus by calculating how well it aligns
+    with protein and transcript evidence. It assigns scores based on the alignment quality
+    and the weights assigned to different gene prediction sources.
+
+    Parameters:
+    -----------
+    locus : dict
+        Dictionary containing gene models and evidence for a single locus
+        Required keys: 'genes', 'proteins', 'transcripts'
+    weights : dict, optional
+        Dictionary mapping gene model sources to weight values (default: {})
+    derived : list, optional
+        List of sources that are derived from evidence and should not be scored (default: [])
+
+    Returns:
+    --------
+    dict
+        Dictionary mapping gene model names to evidence scores:
+        - protein_evidence_score: Sum of protein evidence scores
+        - transcript_evidence_score: Sum of transcript evidence scores
+    """
     results = {}
     for gene in locus["genes"]:
         score = {"proteins": [], "transcripts": []}
@@ -818,6 +967,27 @@ def score_by_evidence(locus, weights={}, derived=[]):
 
 
 def order_sources(locus):
+    """
+    Calculate evidence-based scores for gene models in a locus for source ranking.
+
+    This function evaluates each gene model in a locus by calculating how well it aligns
+    with protein and transcript evidence. Unlike score_by_evidence, this function is used
+    specifically for ranking gene prediction sources based on their agreement with evidence.
+
+    Parameters:
+    -----------
+    locus : dict
+        Dictionary containing gene models and evidence for a single locus
+        Required keys: 'genes', 'proteins', 'transcripts'
+
+    Returns:
+    --------
+    dict
+        Dictionary mapping gene model names to information:
+        - source: Source of the gene model
+        - coords: Coordinates of the gene model
+        - score: Combined evidence score for the gene model
+    """
     results = {}
     # print(locus['genes'])
     # first lets check if all predictions are the same
@@ -846,83 +1016,34 @@ def order_sources(locus):
     return results
 
 
-def debug_gff_writer(outfile, contig, strand, data):
-    # input is a sorted list of gene models from best_model function
-    with zopen(outfile, mode="a") as out:
-        for x in data:
-            name, d = x
-            if strand == "+":
-                sortedCoords = sorted(d["coords"], key=lambda tup: tup[0])
-            else:
-                sortedCoords = sorted(d["coords"], key=lambda tup: tup[0], reverse=True)
-            g_start = min(min(sortedCoords))
-            g_end = max(max(sortedCoords))
-            out.write(
-                "{}\t{}\tgene\t{}\t{}\t{:.4f}\t{}\t.\tID={};Note={},{},reasonable:{};\n".format(
-                    contig,
-                    d["source"],
-                    g_start,
-                    g_end,
-                    d["score"],
-                    strand,
-                    name,
-                    d["locus"],
-                    d["all_scores"],
-                    d["check"],
-                )
-            )
-            out.write(
-                "{}\t{}\tmRNA\t{}\t{}\t.\t{}\t.\tID={}.mrna;Parent={};Note={},{},reasonable:{};\n".format(
-                    contig,
-                    d["source"],
-                    g_start,
-                    g_end,
-                    strand,
-                    name,
-                    name,
-                    d["locus"],
-                    d["all_scores"],
-                    d["check"],
-                )
-            )
-            # now write exon and CDS features
-            num_exons = len(sortedCoords)
-            for x in range(0, num_exons):
-                ex_num = x + 1
-                out.write(
-                    "{:}\t{:}\texon\t{:}\t{:}\t.\t{:}\t.\tID={:}.exon{:};Parent={:}.mrna;\n".format(
-                        contig,
-                        d["source"],
-                        sortedCoords[x][0],
-                        sortedCoords[x][1],
-                        strand,
-                        name,
-                        ex_num,
-                        name,
-                    )
-                )
-            current_phase = d["codon_start"] - 1
-            for y in range(0, num_exons):
-                out.write(
-                    "{:}\t{:}\tCDS\t{:}\t{:}\t.\t{:}\t{:}\tID={:}.cds;Parent={:}.mrna;\n".format(
-                        contig,
-                        d["source"],
-                        sortedCoords[y][0],
-                        sortedCoords[y][1],
-                        strand,
-                        current_phase,
-                        name,
-                        name,
-                    )
-                )
-                current_phase = (
-                    current_phase - (int(sortedCoords[y][1]) - int(sortedCoords[y][0]) + 1)
-                ) % 3
-                if current_phase == 3:
-                    current_phase = 0
-
-
 def reasonable_model(coords, min_protein=30, min_exon=3, min_intron=10, max_intron=-1, max_exon=-1):
+    """
+    Check if a gene model has reasonable exon and intron lengths.
+
+    This function evaluates a gene model to determine if it has reasonable exon and intron
+    lengths based on specified thresholds. It checks minimum exon length, maximum exon length,
+    minimum intron length, maximum intron length, and minimum protein length.
+
+    Parameters:
+    -----------
+    coords : list
+        List of (start, end) coordinate tuples for the gene model's exons
+    min_protein : int, optional
+        Minimum protein length in amino acids (default: 30)
+    min_exon : int, optional
+        Minimum exon length in nucleotides (default: 3)
+    min_intron : int, optional
+        Minimum intron length in nucleotides (default: 10)
+    max_intron : int, optional
+        Maximum intron length in nucleotides, or -1 for no limit (default: -1)
+    max_exon : int, optional
+        Maximum exon length in nucleotides, or -1 for no limit (default: -1)
+
+    Returns:
+    --------
+    bool or str
+        True if the gene model is reasonable, or a string describing the reason it's not reasonable
+    """
     # look at coordinates and check some stats
     exon_lengths = []
     intron_lengths = []
@@ -946,6 +1067,29 @@ def reasonable_model(coords, min_protein=30, min_exon=3, min_intron=10, max_intr
 
 
 def refine_cluster(locus, derived=[]):
+    """
+    Identify potential sub-loci within a locus based on non-overlapping gene models.
+
+    This function analyzes a locus to determine if it contains multiple non-overlapping
+    gene models from the same source, which might indicate that the locus should be split
+    into multiple sub-loci. It focuses on ab initio gene predictors, which typically don't
+    predict overlapping models, so multiple models from the same source in a locus suggest
+    the presence of multiple genes.
+
+    Parameters:
+    -----------
+    locus : dict
+        Dictionary containing gene models and evidence for a single locus
+        Required keys: 'genes'
+    derived : list, optional
+        List of sources that are derived from evidence and should be ignored (default: [])
+
+    Returns:
+    --------
+    dict or bool
+        Dictionary mapping sub-locus indices to lists of gene models if sub-loci are found,
+        or False if no sub-loci are identified
+    """
     # get sources here, but ignore models derived from evidence, ie we
     # just want to find ab initio models here
     sources = [x[1] for x in locus["genes"] if x[1] not in derived]
@@ -1514,10 +1658,26 @@ def de_novo_distance(locus):
 
 def getAED(query, reference):
     """
-    function to calcuate annotation edit distance between two transcript coordinates
-    AED = 1 - (SN + SP / 2)
-    SN = fraction of ref predicted
-    SP = fraction prediction overlapping the ref
+    Calculate Annotation Edit Distance (AED) between two transcript coordinates.
+
+    AED measures the similarity between two gene models by comparing their exon structures.
+    It is calculated as 1 - (SN + SP) / 2, where:
+    - SN (Sensitivity) is the fraction of reference bases that are correctly predicted
+    - SP (Specificity) is the fraction of prediction bases that overlap with the reference
+
+    An AED of 0 means the gene models are identical, while an AED of 1 means they are completely different.
+
+    Parameters:
+    -----------
+    query : list
+        List of (start, end) coordinate tuples for the query gene model's exons
+    reference : list
+        List of (start, end) coordinate tuples for the reference gene model's exons
+
+    Returns:
+    --------
+    float
+        AED score between 0 (identical) and 1 (completely different)
     """
 
     def _length(listTup):
@@ -1683,11 +1843,20 @@ def safe_extract_coordinates(coords):
     """
     Safely extract min and max coordinates from a nested coordinate structure.
 
-    Args:
-        coords: Nested coordinate structure (list of lists, tuples, etc.)
+    This function handles various coordinate formats and structures, extracting the
+    minimum and maximum coordinates while gracefully handling errors. It's designed
+    to work with potentially malformed or inconsistent coordinate data.
+
+    Parameters:
+    -----------
+    coords : list or tuple
+        Nested coordinate structure (list of lists, tuples, etc.)
 
     Returns:
-        tuple: (min_coord, max_coord) or None if extraction fails
+    --------
+    tuple or None
+        A tuple containing (min_coord, max_coord) if extraction succeeds,
+        or None if extraction fails
     """
     try:
         # Handle different coordinate formats
