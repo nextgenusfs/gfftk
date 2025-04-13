@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gfftk"
-version = "25.4.7"
+version = "25.4.12"
 description = "GFFtk: genome annotation GFF3 tool kit"
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [

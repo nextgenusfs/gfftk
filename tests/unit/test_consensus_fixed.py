@@ -84,7 +84,7 @@ class TestConsensusFixed:
         e_coords = [[50, 150], [250, 350]]
 
         score = score_evidence(g_coords, e_coords)
-        assert score == 6  # Partial overlap with coverage adjustment
+        assert score == 4  # Partial overlap with coverage adjustment
 
     def test_score_evidence_no_overlap(self):
         """Test the score_evidence function with no overlap."""

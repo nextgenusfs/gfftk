@@ -1,7 +1,45 @@
 import io
+import os
 from collections import OrderedDict
 
 from .utils import zopen
+
+
+class FASTA:
+    """Class for handling FASTA files."""
+
+    def __init__(self, fasta_file):
+        """Initialize the FASTA object.
+
+        Args:
+            fasta_file (str): Path to the FASTA file
+        """
+        self.fasta_file = fasta_file
+        self.sequences = {}
+        self._load_sequences()
+
+    def _load_sequences(self):
+        """Load sequences from the FASTA file."""
+        if not os.path.isfile(self.fasta_file):
+            raise FileNotFoundError(f"FASTA file not found: {self.fasta_file}")
+
+        with zopen(self.fasta_file) as f:
+            for title, seq in fastaparser(f):
+                # Extract the contig name from the title
+                contig = title.split()[0]
+                self.sequences[contig] = seq
+
+    def get_seq(self, contig):
+        """Get the sequence for a contig.
+
+        Args:
+            contig (str): Contig name
+
+        Returns:
+            str: Sequence for the contig
+        """
+        return self.sequences.get(contig, "")
+
 
 codon_table = {
     1: {

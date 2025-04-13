@@ -133,6 +133,14 @@ def consensus_subparser(subparsers):
         metavar="",
     )
     optional_args.add_argument(
+        "-n",
+        "--num-processes",
+        type=int,
+        dest="num_processes",
+        help="number of processes to use for parallel execution (default: number of CPU cores)",
+        metavar="",
+    )
+    optional_args.add_argument(
         "-m",
         "--minscore",
         type=int,
@@ -185,7 +193,6 @@ def consensus_subparser(subparsers):
         "--silent", action="store_true", help="do not write anything to terminal/stderr"
     )
     optional_args.add_argument("--debug", action="store_true", help="write/keep intermediate files")
-
     other_args = group.add_argument_group("Other arguments")
     other_args.add_argument(
         "-h",
