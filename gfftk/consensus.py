@@ -72,6 +72,65 @@ def generate_consensus(
     num_processes=None,
     log=sys.stderr.write,
 ):
+    """
+    Generate consensus gene models from multiple gene prediction sources and evidence.
+
+    This function is the main entry point for the consensus module. It takes gene predictions
+    from multiple sources, along with protein and transcript evidence, and generates consensus
+    gene models by selecting the best model at each locus based on evidence and source weights.
+
+    The function performs the following steps:
+    1. Parse input GFF3 files and cluster gene models into loci
+    2. Calculate source weights based on evidence if tiebreakers="calculated"
+    3. Select the best gene model at each locus based on evidence and source weights
+    4. Filter out gene models that overlap with repeats (if repeats are provided)
+    5. Write the consensus gene models to a GFF3 file
+
+    Parameters:
+    -----------
+    fasta : str
+        Path to the genome FASTA file
+    genes : list
+        List of paths to gene prediction GFF3 files
+    proteins : list
+        List of paths to protein alignment GFF3 files
+    transcripts : list
+        List of paths to transcript alignment GFF3 files
+    weights : list
+        List of source:weight pairs for weighting gene prediction sources
+    out : str
+        Path to the output GFF3 file
+    debug : bool or str, optional
+        Whether to print debug information or path to debug GFF file (default: False)
+    minscore : bool or int, optional
+        Minimum score threshold for gene models, or False to calculate automatically (default: False)
+    repeats : bool or str, optional
+        Path to repeats GFF3 or BED file, or False to skip repeat filtering (default: False)
+    repeat_overlap : int, optional
+        Maximum percentage of gene model that can overlap with repeats (default: 90)
+    tiebreakers : str, optional
+        Method for calculating source weights, either "calculated" or "user" (default: "calculated")
+    min_exon : int, optional
+        Minimum exon length in nucleotides (default: 3)
+    min_intron : int, optional
+        Minimum intron length in nucleotides (default: 11)
+    max_intron : int, optional
+        Maximum intron length in nucleotides, or -1 for no limit (default: -1)
+    max_exon : int, optional
+        Maximum exon length in nucleotides, or -1 for no limit (default: -1)
+    evidence_derived_models : list, optional
+        List of sources that are derived from evidence and should be treated differently (default: [])
+    num_processes : int or None, optional
+        Number of processes to use for parallel execution, or None for sequential (default: None)
+    log : callable, optional
+        Function to use for logging (default: sys.stderr.write)
+
+    Returns:
+    --------
+    dict
+        Dictionary of consensus gene models, where keys are gene IDs and values are dictionaries
+        containing gene model information (contig, location, strand, source, coords, etc.)
+    """
     log("GFFtk consensus will generate the best gene model at each locus")
     if debug:
         debug = out + ".all_gene_models.gff3"
@@ -367,6 +426,34 @@ def generate_consensus(
 
 
 def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90, log=False):
+    """
+    Filter gene models based on their overlap with repeat regions.
+
+    This function filters out gene models that have a significant overlap with repeat regions.
+    It builds an interlap object from the repeat file (GFF3 or BED) and calculates the
+    percentage of each gene model that overlaps with repeats. Gene models with overlap
+    percentage greater than the filter threshold are removed.
+
+    Parameters:
+    -----------
+    fasta : str
+        Path to the genome FASTA file
+    repeats : str
+        Path to the repeats GFF3 or BED file
+    gene_models : dict
+        Dictionary of gene models to filter
+    filter_threshold : int, optional
+        Maximum percentage of gene model that can overlap with repeats (default: 90)
+    log : callable or bool, optional
+        Function to use for logging, or False to disable logging (default: False)
+
+    Returns:
+    --------
+    tuple
+        A tuple containing:
+        - filtered: Dictionary of filtered gene models
+        - dropped: Number of gene models that were filtered out
+    """
     dropped = 0
     # return fasta length for stats generation
     seq_length = fasta_length(fasta)
@@ -471,6 +558,26 @@ def gff2interlap(infile, fasta, inter=False):
 
 
 def bed2interlap(bedfile, inter=False):
+    """
+    Parse a BED file and construct a scaffold/feature interlap dictionary.
+
+    This function reads a BED file and creates an interlap object containing the genomic
+    features defined in the file. The interlap object allows for efficient overlap queries.
+
+    Parameters:
+    -----------
+    bedfile : str
+        Path to the BED file
+    inter : dict or bool, optional
+        Existing interlap object to update, or False to create a new one (default: False)
+
+    Returns:
+    --------
+    tuple
+        A tuple containing:
+        - inter: Dictionary mapping contig names to interlap objects containing features
+        - length: Total length of all features in the BED file
+    """
     # load interlap object from a bed file
     length = 0
     if not inter:
@@ -497,6 +604,30 @@ def auto_score_threshold(weights, order, user_weight=6):
 
 
 def cluster_interlap(obj):
+    """
+    Cluster genomic features using the interlap.reduce function.
+
+    This function takes an interlap object containing genomic features and clusters them
+    based on their coordinates. Features that overlap or are adjacent to each other are
+    grouped into the same cluster. The function then assigns the original feature data
+    to each cluster.
+
+    Parameters:
+    -----------
+    obj : interlap.InterLap
+        Interlap object containing genomic features
+
+    Returns:
+    --------
+    list
+        List of dictionaries, where each dictionary represents a cluster of features
+        Each dictionary contains:
+        - locus: Tuple of (start, end) coordinates for the cluster
+        - genes: List of gene features in the cluster
+        - proteins: Empty list for protein evidence (filled later)
+        - transcripts: Empty list for transcript evidence (filled later)
+        - repeats: Empty list for repeat features (filled later)
+    """
     # use the interlap.reduce function to get clusters
     # then come back through and assign data to the clusters
     all_coords = [(x[0], x[1]) for x in obj]
@@ -518,6 +649,26 @@ def cluster_interlap(obj):
 
 
 def sub_cluster(obj):
+    """
+    Split a cluster of gene models into sub-clusters based on source.
+
+    This function analyzes a cluster of gene models to determine if it contains multiple
+    models from the same source. If it does, it splits the cluster into sub-clusters,
+    where each sub-cluster contains models that are more likely to belong together based
+    on their overlap.
+
+    Parameters:
+    -----------
+    obj : list
+        List of gene model tuples, where each tuple contains:
+        (name, source, coords, codon_start)
+
+    Returns:
+    --------
+    list
+        List of lists, where each inner list contains gene models that belong to the
+        same sub-cluster
+    """
     # input will be a list of lists for each locus
     # need to check the source and split into sub clusters if any source > 1
     sources = [x[3] for x in obj]
@@ -591,10 +742,51 @@ def contained(a, b):
 
 
 def get_overlap(a, b):
+    """
+    Calculate the overlap between two genomic intervals.
+
+    This function calculates the number of base pairs that overlap between two genomic
+    intervals. If the intervals do not overlap, it returns 0.
+
+    Parameters:
+    -----------
+    a : tuple or list
+        Tuple or list of (start, end) coordinates for the first interval
+    b : tuple or list
+        Tuple or list of (start, end) coordinates for the second interval
+
+    Returns:
+    --------
+    int
+        Number of base pairs that overlap between the two intervals, or 0 if they don't overlap
+    """
     return max(0, min(a[1], b[1]) - max(a[0], b[0]))
 
 
 def get_loci(annot_dict):
+    """
+    Organize gene models into loci based on genomic coordinates and strand.
+
+    This function takes a dictionary of gene models and organizes them into loci based on
+    their genomic coordinates and strand. It creates interlap objects for efficient overlap
+    queries and clusters overlapping gene models into loci. It also filters out pseudogenes
+    and gene models with multiple stop codons.
+
+    Parameters:
+    -----------
+    annot_dict : dict
+        Dictionary of gene models, where keys are gene IDs and values are dictionaries
+        containing gene model information (contig, location, strand, source, CDS, etc.)
+
+    Returns:
+    --------
+    tuple
+        A tuple containing:
+        - loci: Hierarchical dictionary of loci organized by contig and strand
+          {contig: {"+": [locus1, locus2, ...], "-": [locus1, locus2, ...]}}
+        - n_loci: Total number of loci
+        - pseudo: List of pseudogenes that were filtered out
+    """
     # input is annotation dictionary
     plus_inter = defaultdict(interlap.InterLap)
     minus_inter = defaultdict(interlap.InterLap)
@@ -648,7 +840,24 @@ def get_loci(annot_dict):
 
 def gffevidence2dict(file, Evi):
     """
-    general function to take a evidence in GFF3 format and return locustag/ID dictionary
+    Parse evidence alignments from a GFF3 file into a dictionary.
+
+    This function reads a GFF3 file containing evidence alignments (proteins or transcripts)
+    and converts it into a dictionary mapping alignment IDs to their information. It handles
+    multi-exon alignments by combining exons with the same ID into a single entry.
+
+    Parameters:
+    -----------
+    file : str
+        Path to the GFF3 file containing evidence alignments
+    Evi : dict
+        Existing dictionary to update with new evidence alignments
+
+    Returns:
+    --------
+    dict
+        Dictionary mapping alignment IDs to their information (target, type, source,
+        strand, phase, contig, coords, location, score)
     """
     seen = set()
     with zopen(file, mode="r") as input:
@@ -1390,6 +1599,29 @@ def score_aggregator(
 
 
 def cluster_by_aed(locus, score=0.005):
+    """
+    Cluster gene models based on their Annotation Edit Distance (AED).
+
+    This function groups gene models that have very similar exon structures (low AED)
+    into clusters. It is used to identify gene models that are essentially the same
+    prediction but come from different sources, allowing the consensus module to
+    select the best representative from each cluster.
+
+    Parameters:
+    -----------
+    locus : dict
+        Dictionary containing gene models for a single locus
+        Required keys: 'genes'
+    score : float, optional
+        Maximum AED threshold for considering two gene models as part of the same
+        cluster (default: 0.005)
+
+    Returns:
+    --------
+    list
+        List of lists, where each inner list contains gene model IDs that belong to
+        the same cluster
+    """
     distances = calculate_gene_distance(locus)
     # try to cluster, dict is ordered so run through in order
     clusters = {}  # start with identical models
@@ -1429,6 +1661,29 @@ def cluster_by_aed(locus, score=0.005):
 
 
 def map_coords(g_coords, e_coords):
+    """
+    Map evidence coordinates onto gene model coordinates.
+
+    This function takes evidence coordinates (protein or transcript alignments) and maps them
+    onto gene model coordinates. It calculates the offset between each evidence coordinate
+    and the corresponding gene model coordinate, which is used to determine how well the
+    evidence aligns with the gene model.
+
+    Parameters:
+    -----------
+    g_coords : list
+        List of (start, end) coordinate tuples for the gene model's exons
+    e_coords : list
+        List of (start, end) coordinate tuples for the evidence alignments
+
+    Returns:
+    --------
+    list
+        List of lists, where each inner list contains the offset between an evidence
+        coordinate and the corresponding gene model coordinate. The list has the same
+        length as g_coords, with empty lists for gene model coordinates that don't
+        have a corresponding evidence coordinate.
+    """
     # map the e_coords onto the g_coords
     r = [
         [],
@@ -1446,6 +1701,38 @@ def map_coords(g_coords, e_coords):
 
 
 def score_evidence(g_coords, e_coords, weight=2):
+    """
+    Calculate a score for how well evidence aligns with a gene model.
+
+    This function evaluates how well evidence coordinates (protein or transcript alignments)
+    match a gene model's exon structure. It considers both the coverage (percentage of the
+    gene model covered by evidence) and the matching of intron junctions (splice sites).
+
+    The scoring system ranges from 0 to 10 (before applying the weight multiplier):
+    - 10: Perfect match (evidence exactly matches the gene model)
+    - 5-9: Partial match (evidence partially covers the gene model or has some matching junctions)
+    - 0: No match (evidence does not overlap with the gene model)
+
+    For multi-exon genes, the score is adjusted based on:
+    - Base score from exon coverage (0-10 for each exon)
+    - Percent coverage of the entire gene model
+    - Ratio of matching intron junctions
+
+    Parameters:
+    -----------
+    g_coords : list
+        List of (start, end) coordinate tuples for the gene model's exons
+    e_coords : list
+        List of (start, end) coordinate tuples for the evidence alignments
+    weight : int, optional
+        Weight multiplier to apply to the final score (default: 2)
+
+    Returns:
+    --------
+    int
+        Score indicating how well the evidence supports the gene model,
+        ranging from 0 (no support) to higher values (strong support)
+    """
     # Enhanced scoring: 10 to 0 with percent coverage and intron junction consideration
     # 1 == e_coords contained and match intron/exons with 100% coverage and all junctions match
     # 0.5 == e_coords partially contained or partial coverage
@@ -1567,6 +1854,31 @@ def score_evidence(g_coords, e_coords, weight=2):
 
 
 def calculate_source_order(data):
+    """
+    Calculate a rank order of gene prediction sources based on evidence agreement.
+
+    This function analyzes how well each gene prediction source agrees with protein and
+    transcript evidence across all loci. It filters the data to include only loci with
+    sufficient evidence, calculates scores for each source based on evidence agreement,
+    and returns a rank-ordered dictionary of sources with their scores.
+
+    The rank order is used to prioritize gene models when evidence is not available or
+    is inconclusive. Sources that generally have better agreement with evidence receive
+    higher scores and are ranked higher.
+
+    Parameters:
+    -----------
+    data : dict
+        Hierarchical dictionary of loci organized by contig and strand
+        {contig: {"+": [locus1, locus2, ...], "-": [locus1, locus2, ...]}}
+
+    Returns:
+    --------
+    tuple
+        A tuple containing:
+        - order: OrderedDict mapping source names to their scores, ordered by score (highest first)
+        - n_filt: Number of loci that passed the evidence filter
+    """
     # filter data for evidence and calculate the global accuracy of the sources
     # this will output a rank order of sources to use when there is no evidence
     f_data, n_filt = filter4evidence(data)
@@ -1606,6 +1918,25 @@ def calculate_source_order(data):
 
 
 def calculate_gene_distance(locus):
+    """
+    Calculate Annotation Edit Distance (AED) between all pairs of gene models in a locus.
+
+    This function computes the AED between each pair of gene models in a locus, which
+    measures how similar their exon structures are. The AED scores are used to determine
+    which gene models have the most agreement with other models.
+
+    Parameters:
+    -----------
+    locus : dict
+        Dictionary containing gene models for a single locus
+        Required keys: 'genes'
+
+    Returns:
+    --------
+    dict
+        Nested dictionary mapping gene model names to dictionaries of AED scores with other models
+        {gene1: {gene2: aed_score, gene3: aed_score, ...}, gene2: {...}, ...}
+    """
     # caclulate AED for all pairs of gene predictions
     dist = {}
     for y in locus["genes"]:
@@ -1621,6 +1952,29 @@ def calculate_gene_distance(locus):
 
 
 def src_scaling_factor(obj):
+    """
+    Calculate a scaling factor based on the diversity of gene prediction sources that agree.
+
+    This function analyzes the AED scores between gene models to determine how many different
+    gene prediction sources agree with each other. It returns a scaling factor that reflects
+    the proportion of unique sources that have only one model in agreement with others.
+
+    The scaling factor is used to adjust de novo distance scores to favor gene models that
+    have agreement across multiple different sources rather than multiple models from the
+    same source.
+
+    Parameters:
+    -----------
+    obj : dict
+        Dictionary mapping gene model names to their AED scores with other gene models
+
+    Returns:
+    --------
+    float
+        Scaling factor between 0 and 1, where 1 indicates all sources have only one model
+        in agreement with others, and lower values indicate multiple models from the same
+        source agree with others
+    """
     # from the aed de novo distance, check how many other sources overlap with
     src = []
     for k, v in obj.items():
@@ -1637,6 +1991,29 @@ def src_scaling_factor(obj):
 
 
 def de_novo_distance(locus):
+    """
+    Calculate a score for each gene model based on its similarity to other models.
+
+    This function evaluates each gene model in a locus by calculating its Annotation Edit
+    Distance (AED) with all other gene models in the locus. It then computes a score that
+    reflects how similar the gene model is to other models, with higher scores indicating
+    greater similarity.
+
+    This score is used as a proxy for prediction confidence when protein or transcript
+    evidence is not available. Gene models that have more agreement with other models
+    receive higher scores.
+
+    Parameters:
+    -----------
+    locus : dict
+        Dictionary containing gene models for a single locus
+        Required keys: 'genes'
+
+    Returns:
+    --------
+    dict
+        Dictionary mapping gene model names to their de novo distance scores
+    """
     results = {}
     if len(locus["genes"]) > 1:
         # calculate a score for each gene based on AED similaritiy with other models
@@ -1745,6 +2122,28 @@ def getAED(query, reference):
 
 
 def gff_writer(input, output):
+    """
+    Write consensus gene models to a GFF3 file.
+
+    This function takes a dictionary of consensus gene models and writes them to a GFF3 file.
+    It sorts the gene models by contig and start location, and assigns sequential locus tags
+    to each gene model. It also handles the conversion of gene model coordinates to GFF3
+    features (gene, mRNA, exon, CDS).
+
+    Parameters:
+    -----------
+    input : dict
+        Dictionary of consensus gene models, where keys are gene IDs and values are dictionaries
+        containing gene model information (contig, location, strand, source, coords, etc.)
+    output : str
+        Path to the output GFF3 file
+
+    Returns:
+    --------
+    None
+        The function writes to the specified output file but does not return a value
+    """
+
     def _sortDict(d):
         return (d[1]["contig"], d[1]["location"][0])
 
