@@ -132,10 +132,6 @@ def generate_consensus(
         containing gene model information (contig, location, strand, source, coords, etc.)
     """
     log("GFFtk consensus will generate the best gene model at each locus")
-    if debug:
-        debug = out + ".all_gene_models.gff3"
-        if os.path.isfile(debug):
-            os.remove(debug)
     if weights:
         WEIGHTS = {}
         for x in weights:
@@ -149,7 +145,7 @@ def generate_consensus(
                 WEIGHTS[source] = int(w)
             except (ValueError, TypeError):
                 WEIGHTS[source] = 1
-                if debug:
+                if debug is True:
                     log(
                         f"Warning: Could not convert weight for {source} to integer, using default of 1"
                     )
@@ -190,7 +186,7 @@ def generate_consensus(
     plus_consensus = defaultdict(interlap.InterLap)
     minus_consensus = defaultdict(interlap.InterLap)
     counter = 1
-    if debug:
+    if debug is True:
         locus_bed = zopen(out + ".loci.bed", mode="w")
     else:
         locus_bed = open(os.devnull, "w")
@@ -264,7 +260,7 @@ def generate_consensus(
         for keep in keepers:
             if keep[0] not in consensus[contig]:
                 # Debug: Print the source field
-                if debug and "source" in keep[1] and keep[1]["source"].startswith("DP:"):
+                if debug is True and "source" in keep[1] and keep[1]["source"].startswith("DP:"):
                     sys.stderr.write(f"Found DP model: {keep[0]}, source: {keep[1]['source']}\n")
 
                 consensus[contig][keep[0]] = {
@@ -1413,7 +1409,7 @@ def best_model_default(
         List of tuples containing gene model IDs and their information
     """
     # Debug information
-    if debug and not isinstance(debug, str):
+    if debug is True:
         sys.stderr.write(f"\n=== Processing locus {locus_name} ===\n")
         sys.stderr.write(f"Contig: {contig}, Strand: {strand}\n")
         sys.stderr.write(f"Number of genes: {len(locus.get('genes', []))}\n")
@@ -1478,7 +1474,7 @@ def best_model_default(
                     ]
                 )
             except IndexError as e:
-                if debug and not isinstance(debug, str):
+                if debug is True:
                     sys.stderr.write(f"Error processing sub-loci: {e}\n")
                     sys.stderr.write(f"{r}\n")
                 # Return an empty list instead of exiting the program
@@ -1521,7 +1517,7 @@ def best_model_default(
                 bm = [anyties[0]]
         else:
             bm = []
-    if debug and not isinstance(debug, str):
+    if debug is True:
         sys.stderr.write(f"Number of consensus models: {len(bm)}\n")
         sys.stderr.write(f"Consensus models:\n{bm}\n")
     return bm
