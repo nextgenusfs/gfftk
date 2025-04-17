@@ -47,6 +47,32 @@ def is_file(f):
         return False
 
 
+def is_gzipped(filepath):
+    """Checks if a file is gzipped."""
+    with open(filepath, "rb") as f:
+        return f.read(2) == b"\x1f\x8b"
+
+
+def is_text_file(filepath):
+    """Checks if a file is likely a text file."""
+    try:
+        with open(filepath, "r") as f:
+            f.read(4096)
+        return True
+    except UnicodeDecodeError:
+        return False
+
+
+def check_file_type(filepath):
+    """Checks if a file is text, gzipped binary, or other binary."""
+    if is_gzipped(filepath):
+        return "gzipped binary"
+    elif is_text_file(filepath):
+        return "text"
+    else:
+        return "binary"
+
+
 def which2(program):
     def is_exe(fpath):
         return os.path.isfile(fpath) and os.access(fpath, os.X_OK)

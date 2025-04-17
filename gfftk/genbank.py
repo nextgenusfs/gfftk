@@ -14,7 +14,7 @@ from natsort import natsorted
 from .fasta import fasta2dict, getSeqRegions, translate
 from .go import go_term_dict
 from .interlap import InterLap
-from .utils import readBlocks2, zopen
+from .utils import check_file_type, readBlocks2, zopen
 
 
 def tbl2dict(inputfile, fasta, annotation=False, table=1, debug=False):
@@ -986,7 +986,13 @@ def table2asn(
     s = os.path.join(workdir, "genome.sbt")
     outdir = os.path.join(workdir, "sqn")
     gb = os.path.join(outdir, "genome.gbf")
-    shutil.copyfile(genome, g)
+    # genome could be gzipped, so check and proceed accordingly
+    if check_file_type(genome) == "gzipped binary":
+        with gzip.open(genome, "rt") as infile, open(g, "w") as outfile:
+            for line in infile:
+                outfile.write(line)
+    else:
+        shutil.copyfile(genome, g)
     shutil.copyfile(tbl, t)
     if not sbt:
         sbt_writer(s)
