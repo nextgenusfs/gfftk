@@ -87,7 +87,10 @@ def consensus_subparser(subparsers):
 
     required_args = group.add_argument_group("Required arguments")
     required_args.add_argument(
-        "-f", "--fasta", required=True, help="genome in FASTA format", metavar=""
+        "-f",
+        "--fasta",
+        required=True,
+        help="genome in FASTA format",
     )
     required_args.add_argument(
         "-g",
@@ -95,10 +98,12 @@ def consensus_subparser(subparsers):
         required=True,
         nargs="+",
         help="gene model predictions in GFF3 format [accepts multiple files: space separated]",
-        metavar="",
     )
     required_args.add_argument(
-        "-o", "--out", required=True, help="output in GFF3 format", metavar=""
+        "-o",
+        "--out",
+        required=True,
+        help="output in GFF3 format",
     )
 
     optional_args = group.add_argument_group("Optional arguments")
@@ -221,15 +226,12 @@ def convert_subparser(subparsers):
     )
 
     required_args = group.add_argument_group("Required arguments")
-    required_args.add_argument(
-        "-f", "--fasta", required=True, help="genome in FASTA format", metavar=""
-    )
+    required_args.add_argument("-f", "--fasta", required=True, help="genome in FASTA format")
     required_args.add_argument(
         "-i",
         "--input",
         required=True,
         help="annotation in GFF3 or TBL format",
-        metavar="",
     )
 
     optional_args = group.add_argument_group("Optional arguments")
@@ -266,7 +268,7 @@ def convert_subparser(subparsers):
         type=int,
         default=1,
         choices=[1, 11],
-        help="Codon table. Default: 1",
+        help="Codon table. Default: 1 [1,11]",
         metavar="",
     )
     optional_args.add_argument(
@@ -284,12 +286,14 @@ def convert_subparser(subparsers):
         "--grep",
         nargs="+",
         help="Filter gene models, keep matches. [key:value]",
+        default=[],
         metavar="",
     )
     optional_args.add_argument(
         "--grepv",
         nargs="+",
         help="Filter gene models, remove matches [key:value]",
+        default=[],
         metavar="",
     )
     optional_args.add_argument(
