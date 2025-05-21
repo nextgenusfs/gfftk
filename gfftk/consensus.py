@@ -70,6 +70,9 @@ def generate_consensus(
     max_exon=-1,
     evidence_derived_models=[],
     num_processes=None,
+    utrs=True,  # New parameter to control UTR extension
+    min_utr_length=10,
+    max_utr_length=2000,
     log=sys.stderr.write,
 ):
     """
@@ -415,10 +418,652 @@ def generate_consensus(
             json.dumps(sorted(sources.items(), key=lambda x: x[1], reverse=True)),
         )
     )
+    # check if utr mode is enabled
+    if utrs and transcripts:
+        log("Extending gene models with UTRs based on transcript evidence")
+        # Parse transcript alignments if not already done
+        transcript_alignments = {}
+        for t in natsorted(transcripts):
+            transcript_alignments = gffevidence2dict(os.path.abspath(t), transcript_alignments)
+
+        # Extend UTRs based on transcript evidence
+        final = extend_utrs(
+            final,
+            transcript_alignments,
+            fasta,
+            min_utr_length=min_utr_length,
+            max_utr_length=max_utr_length,
+            log=log,
+        )
+    else:
+        log("UTR extension not enabled, using CDS-only gene models")
+        # Copy coords to cds for consistency
+        for model_id, model in final.items():
+            if "coords" in model:
+                model["cds"] = model["coords"].copy()
+
     # finally we can write to GFF3 format
     gff_writer(final, out)
     log("GFFtk consensus is finished: {}".format(out))
     return final
+
+
+def check_intron_compatibility(model_coords, transcript_coords, strand):
+    """
+    Check if transcript has compatible intron/exon boundaries with the gene model.
+
+    Parameters:
+    -----------
+    model_coords : list
+        List of (start, end) tuples for the gene model exons
+    transcript_coords : list
+        List of (start, end) tuples for the transcript alignment
+    strand : str
+        Strand of the gene model ('+' or '-')
+
+    Returns:
+    --------
+    bool
+        True if the transcript has compatible intron/exon boundaries, False otherwise
+    """
+    # Extract intron coordinates from model
+    model_introns = []
+    sorted_model = sorted(model_coords, key=lambda x: x[0])
+    for i in range(len(sorted_model) - 1):
+        model_introns.append((sorted_model[i][1], sorted_model[i + 1][0]))
+
+    # If model has no introns, any transcript is compatible
+    if not model_introns:
+        return True
+
+    # Extract intron coordinates from transcript
+    transcript_introns = []
+    sorted_transcript = sorted(transcript_coords, key=lambda x: x[0])
+    for i in range(len(sorted_transcript) - 1):
+        transcript_introns.append((sorted_transcript[i][1], sorted_transcript[i + 1][0]))
+
+    # If transcript has no introns but model does, it's not compatible
+    if not transcript_introns:
+        return False
+
+    # Check if transcript introns are compatible with model introns
+    # We don't require all introns to match, just that any overlapping introns are compatible
+    for t_intron in transcript_introns:
+        for m_intron in model_introns:
+            # Check if introns overlap
+            if t_intron[0] <= m_intron[1] and t_intron[1] >= m_intron[0]:
+                # If they overlap, they should be identical or very close
+                # Allow small differences (e.g., 5 bp) to account for alignment uncertainty
+                tolerance = 5
+                if (
+                    abs(t_intron[0] - m_intron[0]) > tolerance
+                    or abs(t_intron[1] - m_intron[1]) > tolerance
+                ):
+                    return False
+
+    return True
+
+
+def select_best_utrs(utr_exons_list, strand, min_length=10, max_length=2000):
+    """
+    Select the best UTR exons from multiple transcript evidence.
+
+    This function implements several strategies for selecting the most representative
+    UTR structure from multiple transcript alignments.
+
+    Parameters:
+    -----------
+    utr_exons_list : list
+        List of lists, where each inner list contains UTR exon tuples (start, end)
+    strand : str
+        Strand of the gene model ('+' or '-')
+    min_length : int, optional
+        Minimum total length for a UTR to be considered (default: 10)
+    max_length : int, optional
+        Maximum total length for a UTR to be considered (default: 2000)
+
+    Returns:
+    --------
+    tuple
+        (best_utrs, method_used)
+        - best_utrs: List of (start, end) tuples representing the best UTR exons
+        - method_used: String describing the method used to select the UTRs
+    """
+    if not utr_exons_list:
+        return None, "none"
+
+    # Filter UTRs by length constraints
+    filtered_utrs = []
+    for utrs in utr_exons_list:
+        total_length = sum(exon[1] - exon[0] + 1 for exon in utrs)
+        if min_length <= total_length <= max_length:
+            filtered_utrs.append(utrs)
+
+    if not filtered_utrs:
+        return None, "none"
+
+    # If only one transcript has UTRs, use it
+    if len(filtered_utrs) == 1:
+        return sorted(filtered_utrs[0]), "single_transcript"
+
+    # Calculate various metrics for each UTR set
+    utr_metrics = []
+    for i, utrs in enumerate(filtered_utrs):
+        total_length = sum(exon[1] - exon[0] + 1 for exon in utrs)
+        num_exons = len(utrs)
+        utr_metrics.append(
+            {
+                "index": i,
+                "utrs": utrs,
+                "total_length": total_length,
+                "num_exons": num_exons,
+            }
+        )
+
+    # STRATEGY 1: Median length UTR
+    # Sort by total length and take the median
+    sorted_by_length = sorted(utr_metrics, key=lambda x: x["total_length"])
+    median_idx = len(sorted_by_length) // 2
+    median_utrs = sorted_by_length[median_idx]["utrs"]
+
+    # STRATEGY 2: Most common exon count
+    # Find the most common number of exons
+    exon_counts = {}
+    for metric in utr_metrics:
+        count = metric["num_exons"]
+        if count not in exon_counts:
+            exon_counts[count] = 1
+        else:
+            exon_counts[count] += 1
+
+    most_common_count = max(exon_counts.items(), key=lambda x: x[1])[0]
+
+    # Filter UTRs with the most common exon count
+    common_exon_utrs = [m["utrs"] for m in utr_metrics if m["num_exons"] == most_common_count]
+
+    # If multiple UTRs have the most common exon count, take the median length one
+    if len(common_exon_utrs) > 1:
+        common_lengths = [sum(exon[1] - exon[0] + 1 for exon in utrs) for utrs in common_exon_utrs]
+        median_length_idx = len(common_lengths) // 2
+        common_exon_median_utrs = common_exon_utrs[median_length_idx]
+    else:
+        common_exon_median_utrs = common_exon_utrs[0]
+
+    # STRATEGY 3: Consensus UTR structure
+    # This is more complex - we try to find consensus exon boundaries
+    # First, identify all unique exon boundaries
+    all_starts = []
+    all_ends = []
+    for utrs in filtered_utrs:
+        for exon in utrs:
+            all_starts.append(exon[0])
+            all_ends.append(exon[1])
+
+    # Find consensus boundaries (those that appear in multiple transcripts)
+    start_counts = {}
+    end_counts = {}
+    for start in all_starts:
+        if start not in start_counts:
+            start_counts[start] = 1
+        else:
+            start_counts[start] += 1
+
+    for end in all_ends:
+        if end not in end_counts:
+            end_counts[end] = 1
+        else:
+            end_counts[end] += 1
+
+    # Consider a boundary consensus if it appears in at least 1/3 of transcripts
+    min_count = max(1, len(filtered_utrs) // 3)
+    consensus_starts = [start for start, count in start_counts.items() if count >= min_count]
+    consensus_ends = [end for end, count in end_counts.items() if count >= min_count]
+
+    # Create consensus exons from consensus boundaries
+    consensus_exons = []
+    if strand == "+":
+        # Sort boundaries
+        consensus_starts.sort()
+        consensus_ends.sort()
+
+        # Match starts with ends to form exons
+        for i, start in enumerate(consensus_starts):
+            # Find the closest end that is after this start
+            valid_ends = [end for end in consensus_ends if end > start]
+            if valid_ends:
+                closest_end = min(valid_ends)
+                consensus_exons.append((start, closest_end))
+    else:  # strand == '-'
+        # For minus strand, we want to match from the end backwards
+        consensus_starts.sort(reverse=True)
+        consensus_ends.sort(reverse=True)
+
+        # Match ends with starts to form exons
+        for i, end in enumerate(consensus_ends):
+            # Find the closest start that is before this end
+            valid_starts = [start for start in consensus_starts if start < end]
+            if valid_starts:
+                closest_start = max(valid_starts)
+                consensus_exons.append((closest_start, end))
+
+    # Check if consensus approach yielded valid exons
+    if consensus_exons:
+        # Sort and remove overlaps
+        consensus_exons.sort(key=lambda x: x[0])
+        non_overlapping = [consensus_exons[0]]
+        for exon in consensus_exons[1:]:
+            if exon[0] > non_overlapping[-1][1]:
+                non_overlapping.append(exon)
+
+        # Check length constraints
+        total_consensus_length = sum(exon[1] - exon[0] + 1 for exon in non_overlapping)
+        if min_length <= total_consensus_length <= max_length:
+            return non_overlapping, "consensus"
+
+    # Choose the best strategy based on available data
+    # If we have a good consensus, use that
+    if consensus_exons and len(non_overlapping) > 0:
+        return sorted(non_overlapping), "consensus"
+
+    # If most transcripts agree on exon count, use that with median length
+    if max(exon_counts.values()) > len(filtered_utrs) // 2:
+        return sorted(common_exon_median_utrs), "common_exon_count"
+
+    # Otherwise, use the median length UTR
+    return sorted(median_utrs), "median_length"
+
+
+def extend_utrs(
+    consensus_models,
+    transcripts,
+    genome_fasta,
+    min_utr_length=10,
+    max_utr_length=2000,
+    log=sys.stderr.write,
+):
+    """
+    Extend consensus gene models with UTRs based on transcript evidence.
+
+    This function examines transcript alignments that match consensus gene models
+    and extends the models with 5' and 3' UTRs if supported by the evidence.
+    Only transcripts with compatible intron/exon boundaries are considered.
+    Properly handles spliced UTRs (UTRs containing introns).
+
+    Parameters:
+    -----------
+    consensus_models : dict
+        Dictionary of consensus gene models
+    transcripts : dict
+        Dictionary of transcript alignments
+    genome_fasta : str
+        Path to the genome FASTA file
+    min_utr_length : int, optional
+        Minimum length for a UTR to be added (default: 10)
+    max_utr_length : int, optional
+        Maximum length for a UTR extension (default: 2000)
+    log : callable, optional
+        Function to use for logging (default: sys.stderr.write)
+
+    Returns:
+    --------
+    dict
+        Dictionary of consensus gene models with UTRs added where supported
+    """
+
+    # Track statistics
+    models_with_5utr = 0
+    models_with_3utr = 0
+    total_transcripts = 0
+    compatible_transcripts = 0
+    utr_methods_used = defaultdict(int)
+
+    # Build separate InterLap objects for plus and minus strand transcripts by contig
+    plus_transcript_interlap = defaultdict(interlap.InterLap)
+    minus_transcript_interlap = defaultdict(interlap.InterLap)
+
+    # Organize transcripts into InterLap objects by contig and strand
+    for t_id, t in transcripts.items():
+        contig = t["contig"]
+        strand = t["strand"]
+        t_min = min([x[0] for x in t["coords"]])
+        t_max = max([x[1] for x in t["coords"]])
+
+        # Store all needed information directly in the InterLap object
+        if strand == "+":
+            plus_transcript_interlap[contig].add((t_min, t_max, t_id, t["coords"]))
+        else:
+            minus_transcript_interlap[contig].add((t_min, t_max, t_id, t["coords"]))
+
+    # Process each consensus model
+    for model_id, model in list(consensus_models.items()):
+        if "coords" not in model:
+            continue
+
+        # Get model coordinates and strand
+        coords = model["coords"]
+        strand = model["strand"]
+        contig = model["contig"]
+
+        # First, copy the original CDS coordinates
+        model["cds"] = coords.copy()
+
+        # Skip if no transcripts for this contig
+        if contig not in plus_transcript_interlap and contig not in minus_transcript_interlap:
+            continue
+
+        # Get gene model boundaries
+        g_min = min([x[0] for x in coords])
+        g_max = max([x[1] for x in coords])
+
+        # Use the appropriate InterLap object based on strand
+        transcript_interlap = (
+            plus_transcript_interlap[contig] if strand == "+" else minus_transcript_interlap[contig]
+        )
+
+        # Use InterLap to find overlapping transcripts on the same strand
+        overlapping_transcripts = list(transcript_interlap.find((g_min, g_max)))
+        total_transcripts += len(overlapping_transcripts)
+
+        # Find transcript alignments that are compatible with this model
+        matching_transcripts = []
+
+        for _, _, t_id, t_coords in overlapping_transcripts:
+            # Check if transcript has compatible intron/exon boundaries
+            if check_intron_compatibility(coords, t_coords, strand):
+                compatible_transcripts += 1
+
+                # Calculate overlap score to ensure good match
+                overlap_score = score_evidence(coords, t_coords)
+                if overlap_score > 5:  # Only use transcripts with good overlap
+                    matching_transcripts.append((t_id, t_coords))
+
+        if not matching_transcripts:
+            continue
+
+        # Sort coordinates for consistent processing
+        sorted_coords = sorted(coords, key=lambda x: x[0])
+
+        # Get CDS boundaries (first and last exon)
+        model_start = sorted_coords[0][0]
+        model_end = sorted_coords[-1][1]
+
+        # Initialize UTR lists
+        five_prime_utrs = []
+        three_prime_utrs = []
+
+        # Process each matching transcript to find UTR exons
+        for _, t_coords in matching_transcripts:
+            t_coords_sorted = sorted(t_coords, key=lambda x: x[0])
+
+            if strand == "+":
+                # Find 5' UTR exons (before first CDS exon)
+                five_prime_exons = []
+                for exon in t_coords_sorted:
+                    # Exon is entirely before the first CDS exon
+                    if exon[1] < model_start:
+                        five_prime_exons.append(exon)
+                    # Exon overlaps with first CDS exon - partial UTR
+                    elif exon[0] < model_start and exon[1] >= model_start:
+                        five_prime_exons.append((exon[0], model_start - 1))
+
+                # Find 3' UTR exons (after last CDS exon)
+                three_prime_exons = []
+                for exon in t_coords_sorted:
+                    # Exon is entirely after the last CDS exon
+                    if exon[0] > model_end:
+                        three_prime_exons.append(exon)
+                    # Exon overlaps with last CDS exon - partial UTR
+                    elif exon[0] <= model_end and exon[1] > model_end:
+                        three_prime_exons.append((model_end + 1, exon[1]))
+
+                # Add to UTR collections if found
+                if five_prime_exons:
+                    five_prime_utrs.append(five_prime_exons)
+                if three_prime_exons:
+                    three_prime_utrs.append(three_prime_exons)
+            else:
+                # For minus strand, the logic is reversed
+                # Find 3' UTR exons (before first CDS exon in genomic coordinates)
+                three_prime_exons = []
+                for exon in t_coords_sorted:
+                    # Exon is entirely before the first CDS exon
+                    if exon[1] < model_start:
+                        three_prime_exons.append(exon)
+                    # Exon overlaps with first CDS exon - partial UTR
+                    elif exon[0] < model_start and exon[1] >= model_start:
+                        three_prime_exons.append((exon[0], model_start - 1))
+
+                # Find 5' UTR exons (after last CDS exon in genomic coordinates)
+                five_prime_exons = []
+                for exon in t_coords_sorted:
+                    # Exon is entirely after the last CDS exon
+                    if exon[0] > model_end:
+                        five_prime_exons.append(exon)
+                    # Exon overlaps with last CDS exon - partial UTR
+                    elif exon[0] <= model_end and exon[1] > model_end:
+                        five_prime_exons.append((model_end + 1, exon[1]))
+
+                # Add to UTR collections if found
+                if five_prime_exons:
+                    five_prime_utrs.append(five_prime_exons)
+                if three_prime_exons:
+                    three_prime_utrs.append(three_prime_exons)
+
+        # Flag to track if UTRs were added
+        has_utrs = False
+
+        # Get current gene model boundaries
+        gene_start, gene_end = model["location"]
+
+        # Create a copy of the original coords to modify
+        merged_coords = coords.copy()
+
+        # Process 5' UTRs if any exist
+        if five_prime_utrs:
+            # Select the best UTR using our new function
+            best_five_prime_utrs, method_used = select_best_utrs(
+                five_prime_utrs,
+                strand,
+                min_length=min_utr_length,
+                max_length=max_utr_length,
+            )
+
+            utr_methods_used[f"5prime_{method_used}"] += 1
+
+            if best_five_prime_utrs:
+                has_utrs = True
+
+                # Store the 5' UTR exons as a list of tuples - KEEP ORIGINAL COORDINATES
+                model["five_prime_utr"] = best_five_prime_utrs
+
+                # Update gene boundaries
+                if strand == "+":
+                    gene_start = min(gene_start, min(exon[0] for exon in best_five_prime_utrs))
+                else:
+                    gene_end = max(gene_end, max(exon[1] for exon in best_five_prime_utrs))
+
+                # Merge UTRs with coords for mRNA structure
+                if strand == "+":
+                    # For plus strand, check if first UTR exon connects to first CDS exon
+                    sorted_utrs = sorted(best_five_prime_utrs, key=lambda x: x[0])
+                    sorted_cds = sorted(coords, key=lambda x: x[0])
+
+                    # Check if the last UTR exon connects to the first CDS exon
+                    if sorted_utrs[-1][1] + 1 == sorted_cds[0][0]:
+                        # Find the index of the first CDS exon in merged_coords
+                        # Use a safer approach to find the index
+                        first_cds_exon = sorted_cds[0]
+                        found = False
+                        for i, exon in enumerate(merged_coords):
+                            if exon[0] == first_cds_exon[0] and exon[1] == first_cds_exon[1]:
+                                # For merged coords, extend the first CDS exon to include the UTR
+                                merged_coords[i] = (
+                                    sorted_utrs[-1][0],
+                                    first_cds_exon[1],
+                                )
+                                found = True
+                                break
+
+                        # Add all other UTR exons except the last one
+                        if found:
+                            for utr_exon in sorted_utrs[:-1]:
+                                merged_coords.append(utr_exon)
+                        else:
+                            # If we couldn't find the exact exon, add all UTR exons
+                            for utr_exon in sorted_utrs:
+                                merged_coords.append(utr_exon)
+                    else:
+                        # Add all UTR exons as separate exons
+                        for utr_exon in sorted_utrs:
+                            merged_coords.append(utr_exon)
+                else:
+                    # For minus strand, check if first UTR exon connects to last CDS exon
+                    sorted_utrs = sorted(best_five_prime_utrs, key=lambda x: x[0])
+                    sorted_cds = sorted(coords, key=lambda x: x[0])
+
+                    # Check if the first UTR exon connects to the last CDS exon
+                    if sorted_cds[-1][1] + 1 == sorted_utrs[0][0]:
+                        # Find the index of the last CDS exon in merged_coords
+                        last_cds_exon = sorted_cds[-1]
+                        found = False
+                        for i, exon in enumerate(merged_coords):
+                            if exon[0] == last_cds_exon[0] and exon[1] == last_cds_exon[1]:
+                                # For merged coords, extend the last CDS exon to include the UTR
+                                merged_coords[i] = (last_cds_exon[0], sorted_utrs[0][1])
+                                found = True
+                                break
+
+                        # Add all other UTR exons except the first one
+                        if found:
+                            for utr_exon in sorted_utrs[1:]:
+                                merged_coords.append(utr_exon)
+                        else:
+                            # If we couldn't find the exact exon, add all UTR exons
+                            for utr_exon in sorted_utrs:
+                                merged_coords.append(utr_exon)
+                    else:
+                        # Add all UTR exons as separate exons
+                        for utr_exon in sorted_utrs:
+                            merged_coords.append(utr_exon)
+
+                models_with_5utr += 1
+
+        # Process 3' UTRs if any exist
+        if three_prime_utrs:
+            # Select the best UTR using our new function
+            best_three_prime_utrs, method_used = select_best_utrs(
+                three_prime_utrs,
+                strand,
+                min_length=min_utr_length,
+                max_length=max_utr_length,
+            )
+
+            utr_methods_used[f"3prime_{method_used}"] += 1
+
+            if best_three_prime_utrs:
+                has_utrs = True
+
+                # Store the 3' UTR exons as a list of tuples - KEEP ORIGINAL COORDINATES
+                model["three_prime_utr"] = best_three_prime_utrs
+
+                # Update gene boundaries
+                if strand == "+":
+                    gene_end = max(gene_end, max(exon[1] for exon in best_three_prime_utrs))
+                else:
+                    gene_start = min(gene_start, min(exon[0] for exon in best_three_prime_utrs))
+
+                # Merge UTRs with coords for mRNA structure
+                if strand == "+":
+                    # For plus strand, check if first UTR exon connects to last CDS exon
+                    sorted_utrs = sorted(best_three_prime_utrs, key=lambda x: x[0])
+                    sorted_cds = sorted(coords, key=lambda x: x[0])
+
+                    # Check if the first UTR exon connects to the last CDS exon
+                    if sorted_cds[-1][1] + 1 == sorted_utrs[0][0]:
+                        # Find the index of the last CDS exon in merged_coords
+                        last_cds_exon = sorted_cds[-1]
+                        found = False
+                        for i, exon in enumerate(merged_coords):
+                            if exon[0] == last_cds_exon[0] and exon[1] == last_cds_exon[1]:
+                                # For merged coords, extend the last CDS exon to include the UTR
+                                merged_coords[i] = (last_cds_exon[0], sorted_utrs[0][1])
+                                found = True
+                                break
+
+                        # Add all other UTR exons except the first one
+                        if found:
+                            for utr_exon in sorted_utrs[1:]:
+                                merged_coords.append(utr_exon)
+                        else:
+                            # If we couldn't find the exact exon, add all UTR exons
+                            for utr_exon in sorted_utrs:
+                                merged_coords.append(utr_exon)
+                    else:
+                        # Add all UTR exons as separate exons
+                        for utr_exon in sorted_utrs:
+                            merged_coords.append(utr_exon)
+                else:
+                    # For minus strand, check if last UTR exon connects to first CDS exon
+                    sorted_utrs = sorted(best_three_prime_utrs, key=lambda x: x[0])
+                    sorted_cds = sorted(coords, key=lambda x: x[0])
+
+                    # Check if the last UTR exon connects to the first CDS exon
+                    if sorted_utrs[-1][1] + 1 == sorted_cds[0][0]:
+                        # Find the index of the first CDS exon in merged_coords
+                        first_cds_exon = sorted_cds[0]
+                        found = False
+                        for i, exon in enumerate(merged_coords):
+                            if exon[0] == first_cds_exon[0] and exon[1] == first_cds_exon[1]:
+                                # For merged coords, extend the first CDS exon to include the UTR
+                                merged_coords[i] = (
+                                    sorted_utrs[-1][0],
+                                    first_cds_exon[1],
+                                )
+                                found = True
+                                break
+
+                        # Add all other UTR exons except the last one
+                        if found:
+                            for utr_exon in sorted_utrs[:-1]:
+                                merged_coords.append(utr_exon)
+                        else:
+                            # If we couldn't find the exact exon, add all UTR exons
+                            for utr_exon in sorted_utrs:
+                                merged_coords.append(utr_exon)
+                    else:
+                        # Add all UTR exons as separate exons
+                        for utr_exon in sorted_utrs:
+                            merged_coords.append(utr_exon)
+
+                models_with_3utr += 1
+
+        # Update gene location to include all UTRs
+        if has_utrs:
+            model["location"] = (gene_start, gene_end)
+            model["has_utrs"] = True
+            # Update the coords with the merged version
+            model["coords"] = sorted(merged_coords, key=lambda x: x[0])
+
+        # Update model in the dictionary
+        consensus_models[model_id] = model
+
+    log(
+        f"Found {total_transcripts} overlapping transcripts, {compatible_transcripts} with compatible intron/exon boundaries"
+    )
+    log(
+        f"Added 5' UTRs to {models_with_5utr} gene models and 3' UTRs to {models_with_3utr} gene models"
+    )
+
+    # Log the methods used for UTR selection
+    if utr_methods_used:
+        utr_methods = {}
+        for method, count in sorted(utr_methods_used.items(), key=lambda x: x[1], reverse=True):
+            if "none" in method:
+                continue
+            utr_methods[method] = count
+        log(f"UTR selection methods used:\n{json.dumps(utr_methods, indent=2)}")
+
+    return consensus_models
 
 
 def filter_models_repeats(fasta, repeats, gene_models, filter_threshold=90, log=False):
@@ -2154,8 +2799,10 @@ def gff_writer(input, output):
             locusTag = "CGM_{}".format(str(counter).zfill(6))
             if d["strand"] == "+":
                 sortedCoords = sorted(d["coords"], key=lambda tup: tup[0])
+                sortedCDS = sorted(d["cds"], key=lambda tup: tup[0])
             else:
                 sortedCoords = sorted(d["coords"], key=lambda tup: tup[0], reverse=True)
+                sortedCDS = sorted(d["cds"], key=lambda tup: tup[0], reverse=True)
             # Check if location is valid
             try:
                 g_start, g_end = d["location"]
@@ -2202,6 +2849,22 @@ def gff_writer(input, output):
             sortedCoords = valid_coords
             num_exons = len(sortedCoords)
 
+            # if five_prime_utr then write here
+            if "has_utrs" in d and d["has_utrs"] and "five_prime_utr" in d:
+                for x in range(0, len(d["five_prime_utr"])):
+                    futr_num = x + 1
+                    exon = d["five_prime_utr"][x]
+                    outfile.write(
+                        "{}\tGFFtk\tfive_prime_UTR\t{}\t{}\t.\t{}\t.\tID={}.utr5p.{};Parent={}.mrna;\n".format(
+                            d["contig"],
+                            exon[0],
+                            exon[1],
+                            d["strand"],
+                            locusTag,
+                            futr_num,
+                            locusTag,
+                        )
+                    )
             for x in range(0, num_exons):
                 ex_num = x + 1
                 outfile.write(
@@ -2215,22 +2878,41 @@ def gff_writer(input, output):
                         locusTag,
                     )
                 )
-                outfile.write(
-                    "{}\tGFFtk\tCDS\t{}\t{}\t.\t{}\t{}\tID={}.cds;Parent={}.mrna;\n".format(
-                        d["contig"],
-                        sortedCoords[x][0],
-                        sortedCoords[x][1],
-                        d["strand"],
-                        current_phase,
-                        locusTag,
-                        locusTag,
+            # if three_prime_utr then write here
+            if "has_utrs" in d and d["has_utrs"] and "three_prime_utr" in d:
+                for x in range(0, len(d["three_prime_utr"])):
+                    t_num = x + 1
+                    exon = d["three_prime_utr"][x]
+                    outfile.write(
+                        "{}\tGFFtk\tthree_prime_UTR\t{}\t{}\t.\t{}\t.\tID={}.utr5p.{};Parent={}.mrna;\n".format(
+                            d["contig"],
+                            exon[0],
+                            exon[1],
+                            d["strand"],
+                            locusTag,
+                            t_num,
+                            locusTag,
+                        )
                     )
-                )
-                current_phase = (
-                    current_phase - (int(sortedCoords[x][1]) - int(sortedCoords[x][0]) + 1)
-                ) % 3
-                if current_phase == 3:
-                    current_phase = 0
+            # now write the cds features
+            if "cds" in d:
+                for x in range(0, len(sortedCDS)):
+                    outfile.write(
+                        "{}\tGFFtk\tCDS\t{}\t{}\t.\t{}\t{}\tID={}.cds;Parent={}.mrna;\n".format(
+                            d["contig"],
+                            sortedCDS[x][0],
+                            sortedCDS[x][1],
+                            d["strand"],
+                            current_phase,
+                            locusTag,
+                            locusTag,
+                        )
+                    )
+                    current_phase = (
+                        current_phase - (int(sortedCDS[x][1]) - int(sortedCDS[x][0]) + 1)
+                    ) % 3
+                    if current_phase == 3:
+                        current_phase = 0
             counter += 1
 
 
