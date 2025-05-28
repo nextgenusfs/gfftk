@@ -171,7 +171,36 @@ def generate_consensus(
             for strand in ["+", "-"]:
                 for locus in obj[strand]:
                     for gene in locus["genes"]:
-                        name, source, coords, cstart = gene
+                        # Handle different gene tuple formats
+                        if len(gene) == 4:
+                            name, source, coords, cstart = gene
+                        elif len(gene) == 5:
+                            name, source, coords, cstart, full_location = gene
+                        elif len(gene) == 7:
+                            (
+                                name,
+                                source,
+                                coords,
+                                cstart,
+                                full_location,
+                                utr_5,
+                                utr_3,
+                            ) = gene
+                        elif len(gene) == 9:
+                            (
+                                start,
+                                end,
+                                name,
+                                source,
+                                coords,
+                                cstart,
+                                full_location,
+                                utr_5,
+                                utr_3,
+                            ) = gene
+                        else:
+                            raise ValueError(f"Unexpected gene tuple length: {len(gene)}")
+
                         if source in WEIGHTS:
                             ord_score = WEIGHTS.get(source)
                         else:
@@ -242,9 +271,16 @@ def generate_consensus(
         # Process loci sequentially
         results = [best_model_default(*args) for args in locus_args]
 
-    # Process results
+    # Process results, build locus map file
+    locusMap = OrderedDict()
     for i, keepers in enumerate(results):
         name, contig, strand, locus = locus_info[i]
+        locusMap[name] = {
+            "contig": contig,
+            "strand": strand,
+            "input_models": locus,
+            "consensus_models": [],
+        }
 
         if not keepers:
             continue
@@ -262,10 +298,6 @@ def generate_consensus(
             consensus[contig] = {}
         for keep in keepers:
             if keep[0] not in consensus[contig]:
-                # Debug: Print the source field
-                if debug is True and "source" in keep[1] and keep[1]["source"].startswith("DP:"):
-                    sys.stderr.write(f"Found DP model: {keep[0]}, source: {keep[1]['source']}\n")
-
                 consensus[contig][keep[0]] = {
                     "strand": strand,
                     "locus": name,
@@ -274,6 +306,14 @@ def generate_consensus(
                     "score": keep[1]["score"],
                     "source": keep[1]["source"],
                 }
+                # Add full_location if available
+                if "full_location" in keep[1]:
+                    consensus[contig][keep[0]]["full_location"] = keep[1]["full_location"]
+                # Add UTR information if available
+                if "5UTR" in keep[1]:
+                    consensus[contig][keep[0]]["5UTR"] = keep[1]["5UTR"]
+                if "3UTR" in keep[1]:
+                    consensus[contig][keep[0]]["3UTR"] = keep[1]["3UTR"]
                 # Ensure coordinates are integers
                 try:
                     # Extract min and max coordinates
@@ -335,7 +375,7 @@ def generate_consensus(
         for m, v in o.items():
             if v["score"] > score_threshold:
                 # now see if model is contained on opposite strand, if so then skip
-                # Extract coordinates safely
+                # Extract coordinates safely from CDS for overlap checking
                 coords = safe_extract_coordinates(v["coords"])
                 if coords is None:
                     # Skip if coordinates can't be extracted
@@ -352,7 +392,7 @@ def generate_consensus(
                     if any(contain):
                         continue
                 total += 1
-                # Preserve the original source name, including the DP: prefix for composite models
+                # Preserve the original source name
                 c_source = v["source"]
                 if c_source not in sources:
                     sources[c_source] = 1
@@ -360,8 +400,42 @@ def generate_consensus(
                     sources[c_source] += 1
                 v["contig"] = c
                 v["name"] = m
-                v["location"] = min_coord, max_coord
+                # Use full gene location (including UTRs) if available, otherwise use CDS coordinates
+                if "full_location" in v and v["full_location"] is not None:
+                    v["location"] = v["full_location"]
+                else:
+                    # Fallback to CDS coordinates if no UTR information is available
+                    v["location"] = min_coord, max_coord
+                # Always store CDS coordinates separately for reference
+                v["cds_location"] = min_coord, max_coord
+
+                # Transfer UTR information if it exists
+                if "5UTR" in v and v["5UTR"]:
+                    # Convert 5UTR list of lists to flat list of tuples
+                    five_prime_utrs = []
+                    for transcript_utrs in v["5UTR"]:
+                        if transcript_utrs:  # Skip empty lists
+                            five_prime_utrs.extend(transcript_utrs)
+                    if five_prime_utrs:
+                        v["five_prime_utr"] = five_prime_utrs
+
+                if "3UTR" in v and v["3UTR"]:
+                    # Convert 3UTR list of lists to flat list of tuples
+                    three_prime_utrs = []
+                    for transcript_utrs in v["3UTR"]:
+                        if transcript_utrs:  # Skip empty lists
+                            three_prime_utrs.extend(transcript_utrs)
+                    if three_prime_utrs:
+                        v["three_prime_utr"] = three_prime_utrs
+
                 filtered[m] = v
+                # Add the model to the locus map
+                locusMap[v["locus"]]["consensus_models"].append(v)
+
+    # output the locusMap
+    locusMapOut = out + ".loci.json"
+    with open(locusMapOut, "w") as locusMapOut:
+        json.dump(locusMap, locusMapOut, indent=2)
 
     # now we can filter models in repeat regions
     if repeats:
@@ -371,46 +445,6 @@ def generate_consensus(
         log("{} gene models were dropped due to repeat overlap".format(dropped_n))
     else:
         final = filtered
-
-    # Check for composite models
-    composite_models = {}
-    for k, v in list(consensus.items()):
-        for m, d in list(v.items()):
-            if "source" in d and d["source"].startswith("DP:"):
-                if d["score"] > score_threshold:
-                    # Extract coordinates safely
-                    coords = safe_extract_coordinates(d["coords"])
-                    if coords is None:
-                        # Skip if coordinates can't be extracted
-                        continue
-
-                    min_coord, max_coord = coords
-
-                    # Check for overlapping models on opposite strand
-                    if d["strand"] == "+":
-                        hits = list(minus_consensus[k].find((min_coord, max_coord)))
-                    elif d["strand"] == "-":
-                        hits = list(plus_consensus[k].find((min_coord, max_coord)))
-
-                    if len(hits) > 0:
-                        contain = [contained((min_coord, max_coord), (x[0], x[1])) for x in hits]
-                        if any(contain):
-                            continue
-
-                    # Add the composite model to the final set
-                    d["contig"] = k
-                    d["name"] = m
-                    d["location"] = min_coord, max_coord
-                    composite_models[m] = d
-
-                    # Update the sources count
-                    if d["source"] not in sources:
-                        sources[d["source"]] = 1
-                    else:
-                        sources[d["source"]] += 1
-
-    # Add the composite models to the final set
-    final.update(composite_models)
 
     log(
         "{} consensus gene models derived from these sources:\n{}".format(
@@ -689,6 +723,8 @@ def extend_utrs(
     Only transcripts with compatible intron/exon boundaries are considered.
     Properly handles spliced UTRs (UTRs containing introns).
 
+    UTR extension is limited to avoid overlapping with neighboring genes on the same strand.
+
     Parameters:
     -----------
     consensus_models : dict
@@ -716,6 +752,50 @@ def extend_utrs(
     total_transcripts = 0
     compatible_transcripts = 0
     utr_methods_used = defaultdict(int)
+
+    # Build gene boundary index to prevent overlapping UTR extensions
+    gene_boundaries = defaultdict(
+        lambda: defaultdict(list)
+    )  # {contig: {strand: [(start, end, gene_id)]}}
+    for gene_id, model in consensus_models.items():
+        if "location" in model and "strand" in model and "contig" in model:
+            contig = model["contig"]
+            strand = model["strand"]
+            start, end = model["location"]
+            gene_boundaries[contig][strand].append((start, end, gene_id))
+
+    # Sort gene boundaries by position for efficient neighbor lookup
+    for contig in gene_boundaries:
+        for strand in gene_boundaries[contig]:
+            gene_boundaries[contig][strand].sort(key=lambda x: x[0])
+
+    def get_neighbor_boundaries(contig, strand, gene_id, current_start, current_end):
+        """Get the boundaries of neighboring genes to limit UTR extension."""
+        if contig not in gene_boundaries or strand not in gene_boundaries[contig]:
+            return None, None
+
+        genes_on_strand = gene_boundaries[contig][strand]
+        upstream_boundary = None
+        downstream_boundary = None
+
+        for start, end, gid in genes_on_strand:
+            if gid == gene_id:
+                continue  # Skip the current gene
+
+            # For plus strand: upstream is before gene start, downstream is after gene end
+            # For minus strand: upstream is after gene end, downstream is before gene start
+            if strand == "+":
+                if end < current_start:  # Gene is upstream
+                    upstream_boundary = max(upstream_boundary or 0, end)
+                elif start > current_end:  # Gene is downstream
+                    downstream_boundary = min(downstream_boundary or float("inf"), start)
+            else:  # minus strand
+                if start > current_end:  # Gene is upstream (in transcriptional direction)
+                    upstream_boundary = min(upstream_boundary or float("inf"), start)
+                elif end < current_start:  # Gene is downstream (in transcriptional direction)
+                    downstream_boundary = max(downstream_boundary or 0, end)
+
+        return upstream_boundary, downstream_boundary
 
     # Build separate InterLap objects for plus and minus strand transcripts by contig
     plus_transcript_interlap = defaultdict(interlap.InterLap)
@@ -746,6 +826,10 @@ def extend_utrs(
 
         # First, copy the original CDS coordinates
         model["cds"] = coords.copy()
+
+        # Check if the model already has UTRs - if so, skip UTR extension
+        if "five_prime_utr" in model or "three_prime_utr" in model:
+            continue
 
         # Skip if no transcripts for this contig
         if contig not in plus_transcript_interlap and contig not in minus_transcript_interlap:
@@ -876,11 +960,28 @@ def extend_utrs(
                 # Store the 5' UTR exons as a list of tuples - KEEP ORIGINAL COORDINATES
                 model["five_prime_utr"] = best_five_prime_utrs
 
-                # Update gene boundaries
+                # Get neighbor boundaries to limit UTR extension
+                # Use original gene coordinates for neighbor detection
+                orig_start, orig_end = model["location"]
+                upstream_boundary, downstream_boundary = get_neighbor_boundaries(
+                    contig, strand, model_id, orig_start, orig_end
+                )
+
+                # Update gene boundaries with neighbor checking
                 if strand == "+":
-                    gene_start = min(gene_start, min(exon[0] for exon in best_five_prime_utrs))
+                    proposed_start = min(exon[0] for exon in best_five_prime_utrs)
+                    # For plus strand, 5' UTR extends upstream (lower coordinates)
+                    if upstream_boundary is not None:
+                        # Don't extend past the upstream neighbor (leave 2 bp gap minimum)
+                        proposed_start = max(proposed_start, upstream_boundary + 2)
+                    gene_start = min(gene_start, proposed_start)
                 else:
-                    gene_end = max(gene_end, max(exon[1] for exon in best_five_prime_utrs))
+                    proposed_end = max(exon[1] for exon in best_five_prime_utrs)
+                    # For minus strand, 5' UTR extends upstream (higher coordinates)
+                    if upstream_boundary is not None:
+                        # Don't extend past the upstream neighbor (leave 2 bp gap minimum)
+                        proposed_end = min(proposed_end, upstream_boundary - 2)
+                    gene_end = max(gene_end, proposed_end)
 
                 # Merge UTRs with coords for mRNA structure
                 if strand == "+":
@@ -966,11 +1067,28 @@ def extend_utrs(
                 # Store the 3' UTR exons as a list of tuples - KEEP ORIGINAL COORDINATES
                 model["three_prime_utr"] = best_three_prime_utrs
 
-                # Update gene boundaries
+                # Get neighbor boundaries to limit UTR extension
+                # Use original gene coordinates for neighbor detection
+                orig_start, orig_end = model["location"]
+                upstream_boundary, downstream_boundary = get_neighbor_boundaries(
+                    contig, strand, model_id, orig_start, orig_end
+                )
+
+                # Update gene boundaries with neighbor checking
                 if strand == "+":
-                    gene_end = max(gene_end, max(exon[1] for exon in best_three_prime_utrs))
+                    proposed_end = max(exon[1] for exon in best_three_prime_utrs)
+                    # For plus strand, 3' UTR extends downstream (higher coordinates)
+                    if downstream_boundary is not None:
+                        # Don't extend past the downstream neighbor (leave 2 bp gap minimum)
+                        proposed_end = min(proposed_end, downstream_boundary - 2)
+                    gene_end = max(gene_end, proposed_end)
                 else:
-                    gene_start = min(gene_start, min(exon[0] for exon in best_three_prime_utrs))
+                    proposed_start = min(exon[0] for exon in best_three_prime_utrs)
+                    # For minus strand, 3' UTR extends downstream (lower coordinates)
+                    if downstream_boundary is not None:
+                        # Don't extend past the downstream neighbor (leave 2 bp gap minimum)
+                        proposed_start = max(proposed_start, downstream_boundary + 2)
+                    gene_start = min(gene_start, proposed_start)
 
                 # Merge UTRs with coords for mRNA structure
                 if strand == "+":
@@ -1039,13 +1157,44 @@ def extend_utrs(
 
         # Update gene location to include all UTRs
         if has_utrs:
-            model["location"] = (gene_start, gene_end)
+            # Calculate final gene coordinates based on all actual features (UTRs + CDS)
+            all_coords = []
+
+            # Add CDS coordinates
+            all_coords.extend(coords)
+
+            # Add UTR coordinates if they exist
+            if "five_prime_utr" in model:
+                all_coords.extend(model["five_prime_utr"])
+            if "three_prime_utr" in model:
+                all_coords.extend(model["three_prime_utr"])
+
+            # Calculate final gene boundaries from all actual coordinates
+            final_start = min(coord[0] for coord in all_coords)
+            final_end = max(coord[1] for coord in all_coords)
+
+            model["location"] = (final_start, final_end)
             model["has_utrs"] = True
             # Update the coords with the merged version
             model["coords"] = sorted(merged_coords, key=lambda x: x[0])
 
         # Update model in the dictionary
         consensus_models[model_id] = model
+
+        # Update the gene boundary index with the new coordinates after UTR extension
+        if has_utrs and "location" in model:
+            contig = model["contig"]
+            strand = model["strand"]
+            new_start, new_end = model["location"]
+
+            # Find and update this gene's entry in the boundary index
+            if contig in gene_boundaries and strand in gene_boundaries[contig]:
+                for i, (start, end, gid) in enumerate(gene_boundaries[contig][strand]):
+                    if gid == model_id:
+                        gene_boundaries[contig][strand][i] = (new_start, new_end, gid)
+                        break
+                # Re-sort after updating
+                gene_boundaries[contig][strand].sort(key=lambda x: x[0])
 
     log(
         f"Found {total_transcripts} overlapping transcripts, {compatible_transcripts} with compatible intron/exon boundaries"
@@ -1244,6 +1393,30 @@ def auto_score_threshold(weights, order, user_weight=6):
     return threshold
 
 
+def cluster_interlap_original(obj):
+    """
+    Original cluster_interlap function (before fix) for debugging.
+    """
+    # use the interlap.reduce function to get clusters
+    # then come back through and assign data to the clusters
+    all_coords = [(x[0], x[1]) for x in obj]
+    bins = interlap.reduce(all_coords)
+    results = []
+    for b in bins:
+        hits = list(obj.find(b))
+        if len(hits) > 1:
+            results.append(
+                {
+                    "locus": b,
+                    "genes": [x[2:] for x in hits],
+                    "proteins": [],
+                    "transcripts": [],
+                    "repeats": [],
+                }
+            )
+    return results
+
+
 def cluster_interlap(obj):
     """
     Cluster genomic features using the interlap.reduce function.
@@ -1251,7 +1424,7 @@ def cluster_interlap(obj):
     This function takes an interlap object containing genomic features and clusters them
     based on their coordinates. Features that overlap or are adjacent to each other are
     grouped into the same cluster. The function then assigns the original feature data
-    to each cluster.
+    to each cluster, ensuring each gene model is only assigned to one locus.
 
     Parameters:
     -----------
@@ -1273,20 +1446,74 @@ def cluster_interlap(obj):
     # then come back through and assign data to the clusters
     all_coords = [(x[0], x[1]) for x in obj]
     bins = interlap.reduce(all_coords)
-    results = []
+
+    # Fix for interlap.reduce() bug: merge bins that share genes
+    # This handles cases where genes span bin boundaries
+    merged_bins = []
+    assigned_genes = set()
+
     for b in bins:
         hits = list(obj.find(b))
-        if len(hits) > 1:
-            results.append(
-                {
-                    "locus": b,
-                    "genes": [x[2:] for x in hits],
-                    "proteins": [],
-                    "transcripts": [],
-                    "repeats": [],
-                }
-            )
-    return results
+        current_genes = set(hit[2] for hit in hits)  # Gene IDs in this bin
+
+        # Check if any genes in this bin are already assigned to a previous bin
+        overlapping_genes = current_genes & assigned_genes
+
+        if overlapping_genes:
+            # Merge with the last bin that contains overlapping genes
+            if merged_bins:
+                last_bin = merged_bins[-1]
+                # Expand the locus boundaries to include this bin
+                new_start = min(last_bin["locus"][0], b[0])
+                new_end = max(last_bin["locus"][1], b[1])
+                last_bin["locus"] = (new_start, new_end)
+
+                # Add new genes to the existing bin
+                for hit in hits:
+                    gene_id = hit[2]
+                    if gene_id not in assigned_genes:
+                        last_bin["genes"].append(hit[2:])
+                        assigned_genes.add(gene_id)
+            else:
+                # This shouldn't happen, but handle it gracefully
+                unique_hits = []
+                for hit in hits:
+                    gene_id = hit[2]
+                    if gene_id not in assigned_genes:
+                        unique_hits.append(hit)
+                        assigned_genes.add(gene_id)
+
+                if unique_hits:
+                    merged_bins.append(
+                        {
+                            "locus": b,
+                            "genes": [x[2:] for x in unique_hits],
+                            "proteins": [],
+                            "transcripts": [],
+                            "repeats": [],
+                        }
+                    )
+        else:
+            # No overlapping genes, create a new bin
+            unique_hits = []
+            for hit in hits:
+                gene_id = hit[2]
+                if gene_id not in assigned_genes:
+                    unique_hits.append(hit)
+                    assigned_genes.add(gene_id)
+
+            if unique_hits:
+                merged_bins.append(
+                    {
+                        "locus": b,
+                        "genes": [x[2:] for x in unique_hits],
+                        "proteins": [],
+                        "transcripts": [],
+                        "repeats": [],
+                    }
+                )
+
+    return merged_bins
 
 
 def sub_cluster(obj):
@@ -1451,6 +1678,9 @@ def get_loci(annot_dict):
                     info["source"],
                     info["CDS"],
                     info["codon_start"][0],
+                    info["location"],  # Add full gene location (includes UTRs)
+                    info.get("5UTR", []),  # Add 5' UTR information
+                    info.get("3UTR", []),  # Add 3' UTR information
                 ]
             )
         else:
@@ -1462,6 +1692,9 @@ def get_loci(annot_dict):
                     info["source"],
                     info["CDS"],
                     info["codon_start"][0],
+                    info["location"],  # Add full gene location (includes UTRs)
+                    info.get("5UTR", []),  # Add 5' UTR information
+                    info.get("3UTR", []),  # Add 3' UTR information
                 ]
             )
     loci = {}
@@ -1796,7 +2029,17 @@ def score_by_evidence(locus, weights={}, derived=[]):
     results = {}
     for gene in locus["genes"]:
         score = {"proteins": [], "transcripts": []}
-        name, source, coords, cstart = gene
+        # Handle different gene tuple formats
+        if len(gene) == 4:
+            name, source, coords, cstart = gene
+        elif len(gene) == 5:
+            name, source, coords, cstart, full_location = gene
+        elif len(gene) == 7:
+            name, source, coords, cstart, full_location, utr_5, utr_3 = gene
+        elif len(gene) == 9:
+            start, end, name, source, coords, cstart, full_location, utr_5, utr_3 = gene
+        else:
+            raise ValueError(f"Unexpected gene tuple length: {len(gene)}")
         if source not in derived:
             for s in ["proteins", "transcripts"]:
                 for x in locus[s]:
@@ -1845,7 +2088,29 @@ def order_sources(locus):
     if len([list(i) for i in set(tuple(i) for i in allcoords)]) > 0:
         for gene in locus["genes"]:
             score = {"proteins": [], "transcripts": []}
-            name, source, coords, cstart = gene
+            # Handle different gene tuple formats
+            if len(gene) == 4:
+                name, source, coords, cstart = gene
+            elif len(gene) == 5:
+                name, source, coords, cstart, full_location = gene
+            elif len(gene) == 7:
+                # Old format with 7 elements
+                name, source, coords, cstart, full_location, utr_5, utr_3 = gene
+            elif len(gene) == 9:
+                # New format with 9 elements (includes UTR information)
+                (
+                    start,
+                    end,
+                    name,
+                    source,
+                    coords,
+                    cstart,
+                    full_location,
+                    utr_5,
+                    utr_3,
+                ) = gene
+            else:
+                raise ValueError(f"Unexpected gene tuple length: {len(gene)}")
             for s in ["proteins", "transcripts"]:
                 for x in locus[s]:
                     q_name, q_source, q_coords = x
@@ -1856,13 +2121,22 @@ def order_sources(locus):
                 "score": sum(score["proteins"]) + sum(score["transcripts"]),
             }
     else:
-        results = {
-            locus["genes"][0][0]: {
-                "source": locus["genes"][0][1],
-                "coords": locus["genes"][0][2],
-                "score": 0,
-            }
-        }
+        # Handle different gene tuple formats
+        first_gene = locus["genes"][0]
+        if len(first_gene) == 4:
+            name, source, coords, cstart = first_gene
+            results = {name: {"source": source, "coords": coords, "score": 0}}
+        elif len(first_gene) == 5:
+            name, source, coords, cstart, full_location = first_gene
+            results = {name: {"source": source, "coords": coords, "score": 0}}
+        elif len(first_gene) == 7:
+            name, source, coords, cstart, full_location, utr_5, utr_3 = first_gene
+            results = {name: {"source": source, "coords": coords, "score": 0}}
+        elif len(first_gene) == 9:
+            start, end, name, source, coords, cstart, full_location, utr_5, utr_3 = first_gene
+            results = {name: {"source": source, "coords": coords, "score": 0}}
+        else:
+            raise ValueError(f"Unexpected gene tuple length: {len(first_gene)}")
     return results
 
 
@@ -1942,7 +2216,11 @@ def refine_cluster(locus, derived=[]):
     """
     # get sources here, but ignore models derived from evidence, ie we
     # just want to find ab initio models here
-    sources = [x[1] for x in locus["genes"] if x[1] not in derived]
+    # Handle both old format (4 elements) and new format (5 elements)
+    sources = []
+    for x in locus["genes"]:
+        if len(x) >= 4 and x[1] not in derived:
+            sources.append(x[1])  # source is at index 1
     if len(sources) > 0:
         src, n = Counter(sources).most_common(1)[0]
         if n > 1:
@@ -1951,7 +2229,8 @@ def refine_cluster(locus, derived=[]):
             queries = []
             locs = []
             for x in locus["genes"]:
-                if x[1] == src:
+                # Handle both old format (4 elements) and new format (5 elements)
+                if len(x) >= 4 and x[1] == src:
                     coords = (min(x[2][0])[0], max(x[2][0])[1])
                     if len(locs) > 0:
                         unique = True
@@ -1982,13 +2261,15 @@ def refine_cluster(locus, derived=[]):
                 # if the seeds overlap, then forget it, its a single locus
                 # now we can assign the queries to seeds
                 for y in queries:
-                    for idx, w in enumerate(locs):
-                        o = get_overlap([min(y[2][0])[0], max(y[2][0])[1]], w)
-                        if o > 0:
-                            if isinstance(y, list):
-                                final[idx].append(y)
-                            else:
-                                final[idx].append([y])
+                    # Handle both old format (4 elements) and new format (5 elements)
+                    if len(y) >= 4:
+                        for idx, w in enumerate(locs):
+                            o = get_overlap([min(y[2][0])[0], max(y[2][0])[1]], w)
+                            if o > 0:
+                                if isinstance(y, list):
+                                    final[idx].append(y)
+                                else:
+                                    final[idx].append([y])
                 return final
             else:
                 return False
@@ -2200,7 +2481,34 @@ def score_aggregator(
     results = {}
     for gene in locus["genes"]:
         try:
-            name, source, coords, cstart = gene
+            # Handle different gene tuple formats
+            if len(gene) == 4:
+                name, source, coords, cstart = gene
+                full_location = None
+                utr_5 = []
+                utr_3 = []
+            elif len(gene) == 5:
+                name, source, coords, cstart, full_location = gene
+                utr_5 = []
+                utr_3 = []
+            elif len(gene) == 7:
+                # Old format with 7 elements
+                name, source, coords, cstart, full_location, utr_5, utr_3 = gene
+            elif len(gene) == 9:
+                # New format with 9 elements (includes UTR information)
+                (
+                    start,
+                    end,
+                    name,
+                    source,
+                    coords,
+                    cstart,
+                    full_location,
+                    utr_5,
+                    utr_3,
+                ) = gene
+            else:
+                raise ValueError(f"Unexpected gene tuple length: {len(gene)}")
         except ValueError:
             print("ERROR parsing gene object")
             print(gene)
@@ -2234,7 +2542,12 @@ def score_aggregator(
             "all_scores": "total:{:.2f},user:{},aed:{:.4f},prot:{},trans:{},order:{}".format(
                 total_score, user_score, aed_score, prot_score, trans_score, order_score
             ),
+            "5UTR": utr_5,  # Add 5' UTR information
+            "3UTR": utr_3,  # Add 3' UTR information
         }
+        # Store full gene location (including UTRs) if available
+        if full_location is not None:
+            d["full_location"] = full_location
         results[name] = d
     return results
 
@@ -2552,7 +2865,19 @@ def calculate_source_order(data):
             for strand in ["+", "-"]:
                 for locus in obj[strand]:
                     for gene in locus["genes"]:
-                        name, source, coords, cstart = gene
+                        # Handle different gene tuple formats
+                        if len(gene) == 4:
+                            source = gene[1]  # Extract source
+                        elif len(gene) == 5:
+                            source = gene[1]  # Extract source
+                        elif len(gene) == 7:
+                            source = gene[1]  # Extract source
+                        elif len(gene) == 9:
+                            source = gene[
+                                3
+                            ]  # Extract source (different position in 9-element tuple)
+                        else:
+                            raise ValueError(f"Unexpected gene tuple length: {len(gene)}")
                         if source not in order:
                             order[source] = 1
     return order, n_filt
@@ -2581,11 +2906,35 @@ def calculate_gene_distance(locus):
     # caclulate AED for all pairs of gene predictions
     dist = {}
     for y in locus["genes"]:
-        dist[y[0]] = {}
+        # Handle different gene tuple formats to get the name
+        if len(y) == 4:
+            name = y[0]
+        elif len(y) == 5:
+            name = y[0]
+        elif len(y) == 7:
+            name = y[0]
+        elif len(y) == 9:
+            name = y[2]  # Different position in 9-element tuple
+        else:
+            raise ValueError(f"Unexpected gene tuple length: {len(y)}")
+        dist[name] = {}
     for x in itertools.combinations(locus["genes"], 2):
         a, b = x
-        a_name, a_source, a_coord, _ = a
-        b_name, b_source, b_coord, _ = b
+        # Handle different gene tuple formats
+        if len(a) == 4 and len(b) == 4:
+            a_name, a_coord = a[0], a[2]
+            b_name, b_coord = b[0], b[2]
+        elif len(a) == 5 and len(b) == 5:
+            a_name, a_coord = a[0], a[2]
+            b_name, b_coord = b[0], b[2]
+        elif len(a) == 7 and len(b) == 7:
+            a_name, a_coord = a[0], a[2]
+            b_name, b_coord = b[0], b[2]
+        elif len(a) == 9 and len(b) == 9:
+            a_name, a_coord = a[2], a[4]  # Different positions in 9-element tuple
+            b_name, b_coord = b[2], b[4]
+        else:
+            raise ValueError(f"Unexpected gene tuple lengths: {len(a)}, {len(b)}")
         aed = getAED(b_coord[0], a_coord[0])
         dist[a_name][b_name] = aed
         dist[b_name][a_name] = aed
@@ -2810,7 +3159,7 @@ def gff_writer(input, output):
                 # Skip this gene if location is invalid
                 continue
 
-            # Preserve the original source name, including the DP: prefix for composite models
+            # Preserve the original source name
             source = d["source"]
             outfile.write(
                 "{}\tGFFtk\tgene\t{}\t{}\t{:.4f}\t{}\t.\tID={};Note={} derived from {} model {};\n".format(
