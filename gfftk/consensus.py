@@ -885,20 +885,32 @@ def extend_utrs(
                 for exon in t_coords_sorted:
                     # Exon is entirely before the first CDS exon
                     if exon[1] < model_start:
-                        five_prime_exons.append(exon)
+                        # Check distance limit - don't extend 5' UTR too far upstream
+                        # Also check for large gaps that suggest this is a different gene
+                        gap_to_cds = model_start - exon[1]
+                        if gap_to_cds <= max_utr_length and gap_to_cds <= 500:  # Max 500bp gap
+                            five_prime_exons.append(exon)
                     # Exon overlaps with first CDS exon - partial UTR
                     elif exon[0] < model_start and exon[1] >= model_start:
-                        five_prime_exons.append((exon[0], model_start - 1))
+                        # Check distance limit for the UTR portion
+                        if model_start - exon[0] <= max_utr_length:
+                            five_prime_exons.append((exon[0], model_start - 1))
 
                 # Find 3' UTR exons (after last CDS exon)
                 three_prime_exons = []
                 for exon in t_coords_sorted:
                     # Exon is entirely after the last CDS exon
                     if exon[0] > model_end:
-                        three_prime_exons.append(exon)
+                        # Check distance limit - don't extend 3' UTR too far downstream
+                        # Also check for large gaps that suggest this is a different gene
+                        gap_to_cds = exon[0] - model_end
+                        if gap_to_cds <= max_utr_length and gap_to_cds <= 500:  # Max 500bp gap
+                            three_prime_exons.append(exon)
                     # Exon overlaps with last CDS exon - partial UTR
                     elif exon[0] <= model_end and exon[1] > model_end:
-                        three_prime_exons.append((model_end + 1, exon[1]))
+                        # Check distance limit for the UTR portion
+                        if exon[1] - model_end <= max_utr_length:
+                            three_prime_exons.append((model_end + 1, exon[1]))
 
                 # Add to UTR collections if found
                 if five_prime_exons:
@@ -912,20 +924,32 @@ def extend_utrs(
                 for exon in t_coords_sorted:
                     # Exon is entirely before the first CDS exon
                     if exon[1] < model_start:
-                        three_prime_exons.append(exon)
+                        # Check distance limit - don't extend 3' UTR too far upstream
+                        # Also check for large gaps that suggest this is a different gene
+                        gap_to_cds = model_start - exon[1]
+                        if gap_to_cds <= max_utr_length and gap_to_cds <= 500:  # Max 500bp gap
+                            three_prime_exons.append(exon)
                     # Exon overlaps with first CDS exon - partial UTR
                     elif exon[0] < model_start and exon[1] >= model_start:
-                        three_prime_exons.append((exon[0], model_start - 1))
+                        # Check distance limit for the UTR portion
+                        if model_start - exon[0] <= max_utr_length:
+                            three_prime_exons.append((exon[0], model_start - 1))
 
                 # Find 5' UTR exons (after last CDS exon in genomic coordinates)
                 five_prime_exons = []
                 for exon in t_coords_sorted:
                     # Exon is entirely after the last CDS exon
                     if exon[0] > model_end:
-                        five_prime_exons.append(exon)
+                        # Check distance limit - don't extend 5' UTR too far downstream
+                        # Also check for large gaps that suggest this is a different gene
+                        gap_to_cds = exon[0] - model_end
+                        if gap_to_cds <= max_utr_length and gap_to_cds <= 500:  # Max 500bp gap
+                            five_prime_exons.append(exon)
                     # Exon overlaps with last CDS exon - partial UTR
                     elif exon[0] <= model_end and exon[1] > model_end:
-                        five_prime_exons.append((model_end + 1, exon[1]))
+                        # Check distance limit for the UTR portion
+                        if exon[1] - model_end <= max_utr_length:
+                            five_prime_exons.append((model_end + 1, exon[1]))
 
                 # Add to UTR collections if found
                 if five_prime_exons:
