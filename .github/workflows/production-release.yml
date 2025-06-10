@@ -165,20 +165,39 @@ jobs:
         # Get the previous tag
         PREV_TAG=$(git describe --tags --abbrev=0 ${{ needs.validate-tag.outputs.tag }}^)
 
+        echo "Generating release notes for ${{ needs.validate-tag.outputs.tag }}"
+        echo "Previous tag: $PREV_TAG"
+        echo ""
+
         # Generate changelog
         echo "## Changes" > release_notes.md
         echo "" >> release_notes.md
-        git log --pretty=format:"- %s (%h)" $PREV_TAG..${{ needs.validate-tag.outputs.tag }} >> release_notes.md
+
+        # Get all commits between previous tag and current tag, excluding version bump commits
+        git log --pretty=format:"- %s (%h)" $PREV_TAG..${{ needs.validate-tag.outputs.tag }} \
+          --grep="bump version" --grep="version bump" --grep="update version" \
+          --invert-grep >> release_notes.md
+
+        # Check if we have any commits
+        if [ ! -s release_notes.md ] || [ $(wc -l < release_notes.md) -le 2 ]; then
+          echo "## Changes" > release_notes.md
+          echo "" >> release_notes.md
+          echo "- No significant changes since previous release" >> release_notes.md
+        fi
+
         echo "" >> release_notes.md
         echo "" >> release_notes.md
         echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ needs.validate-tag.outputs.tag }}" >> release_notes.md
+
+        echo "Generated release notes:"
+        cat release_notes.md
 
     - name: Create GitHub Release
       id: create_release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ needs.validate-tag.outputs.tag }}
-        name: Release ${{ needs.validate-tag.outputs.tag }}
+        name: GFFtk ${{ needs.validate-tag.outputs.tag }}
         body_path: release_notes.md
         files: dist/*
         prerelease: ${{ github.event.inputs.prerelease == 'true' }}
@@ -201,7 +220,7 @@ jobs:
         fi
 
         gh release create "${{ needs.validate-tag.outputs.tag }}" \
-          --title "Release ${{ needs.validate-tag.outputs.tag }}" \
+          --title "GFFtk ${{ needs.validate-tag.outputs.tag }}" \
           --notes-file release_notes.md \
           $PRERELEASE_FLAG \
           dist/*
