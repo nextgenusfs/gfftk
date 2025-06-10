@@ -1,75 +1,31 @@
-name: Publish Python 🐍 distribution 📦 to PyPI and TestPyPI
+# This workflow is deprecated and replaced by:
+# - test-release.yml (for TestPyPI on tags)
+# - production-release.yml (for PyPI with manual trigger)
+#
+# Keeping this file for now to avoid breaking existing references
+# TODO: Remove this file after confirming new workflows work
 
-on: push
+name: "[DEPRECATED] Old Release Workflow"
+
+on:
+  workflow_dispatch:  # Only manual trigger now
+    inputs:
+      confirm:
+        description: 'This workflow is deprecated. Use test-release.yml or production-release.yml instead.'
+        required: true
+        default: 'I understand this is deprecated'
 
 jobs:
-  build:
-    name: Build distribution 📦
+  deprecated-notice:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.x"
-    - name: Install pypa/build
-      run: >-
-        python3 -m
-        pip install
-        build
-        --user
-    - name: Build a binary wheel and a source tarball
-      run: python3 -m build
-    - name: Store the distribution packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: python-package-distributions
-        path: dist/
-
-  publish-to-pypi:
-    name: >-
-      Publish Python 🐍 distribution 📦 to PyPI
-    if: startsWith(github.ref, 'refs/tags/')  # only publish to PyPI on tag pushes
-    needs:
-    - build
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/gfftk  # Replace <package-name> with your PyPI project name
-    permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
-
-    steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v4
-      with:
-        name: python-package-distributions
-        path: dist/
-    - name: Publish distribution 📦 to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-
-
-  publish-to-testpypi:
-    name: Publish Python 🐍 distribution 📦 to TestPyPI
-    needs:
-    - build
-    runs-on: ubuntu-latest
-
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/gfftk
-
-    permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
-
-    steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v4
-      with:
-        name: python-package-distributions
-        path: dist/
-    - name: Publish distribution 📦 to TestPyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        repository-url: https://test.pypi.org/legacy/
+    - name: Deprecation Notice
+      run: |
+        echo "⚠️  This workflow is deprecated!"
+        echo ""
+        echo "Please use instead:"
+        echo "- test-release.yml: Publishes to TestPyPI on git tags"
+        echo "- production-release.yml: Manual workflow for PyPI + GitHub releases"
+        echo ""
+        echo "Input provided: ${{ github.event.inputs.confirm }}"
+        exit 1
