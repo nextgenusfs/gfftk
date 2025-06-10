@@ -99,6 +99,7 @@ jobs:
   publish-to-pypi:
     name: Publish to PyPI 🚀
     needs: [validate-tag, build]
+    if: always() && needs.validate-tag.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
 
     environment:
@@ -121,6 +122,7 @@ jobs:
   create-github-release:
     name: Create GitHub Release
     needs: [validate-tag, build, publish-to-pypi]
+    if: always() && needs.validate-tag.result == 'success' && needs.build.result == 'success' && needs.publish-to-pypi.result == 'success'
     runs-on: ubuntu-latest
 
     permissions:
