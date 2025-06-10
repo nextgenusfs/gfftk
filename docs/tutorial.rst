@@ -64,7 +64,9 @@ You can modify gene annotations in the parsed GFF3 data:
 Filtering Genes
 ~~~~~~~~~~~~~
 
-You can filter genes based on various criteria:
+You can filter genes based on various criteria using both the Python API and command-line interface.
+
+**Manual Filtering with Python API:**
 
 .. code-block:: python
 
@@ -83,6 +85,66 @@ You can filter genes based on various criteria:
     # Write the filtered data back to a GFF3 file
     gfftk.gff.dict2gff3(filtered_genes, output="filtered.gff3")
 
+**Built-in Filtering with Convert Command:**
+
+The convert command provides built-in filtering options using ``--grep`` and ``--grepv`` flags:
+
+.. code-block:: bash
+
+    # Keep only kinase genes
+    gfftk convert -i input.gff3 -f genome.fasta -o kinases.gff3 --grep product:kinase
+
+    # Remove augustus predictions
+    gfftk convert -i input.gff3 -f genome.fasta -o filtered.gff3 --grepv source:augustus
+
+    # Case-insensitive filtering
+    gfftk convert -i input.gff3 -f genome.fasta -o results.gff3 --grep product:KINASE:i
+
+    # Combined filtering: keep kinases but remove augustus predictions
+    gfftk convert -i input.gff3 -f genome.fasta -o filtered.gff3 \
+        --grep product:kinase --grepv source:augustus
+
+**Filter Pattern Syntax:**
+
+- Basic pattern: ``key:pattern`` (e.g., ``product:kinase``)
+- Case-insensitive: ``key:pattern:i`` (e.g., ``product:KINASE:i``)
+- Regex patterns: ``key:regex_pattern`` (e.g., ``contig:^chr[0-9]+$``)
+- Multiple patterns: Use multiple ``--grep`` or ``--grepv`` flags
+
+**Common Filter Examples:**
+
+.. code-block:: bash
+
+    # Filter by gene product
+    gfftk convert -i input.gff3 -f genome.fasta -o transporters.gff3 --grep product:transporter
+
+    # Filter by annotation source
+    gfftk convert -i input.gff3 -f genome.fasta -o genemark_only.gff3 --grep source:genemark
+
+    # Filter by chromosome/contig
+    gfftk convert -i input.gff3 -f genome.fasta -o chr1_genes.gff3 --grep contig:chr1
+
+    # Filter by strand
+    gfftk convert -i input.gff3 -f genome.fasta -o plus_strand.gff3 --grep strand:\\+
+
+    # Remove hypothetical proteins
+    gfftk convert -i input.gff3 -f genome.fasta -o known_proteins.gff3 \
+        --grepv product:"hypothetical.*protein"
+
+**Available Filter Keys:**
+
+You can filter on any annotation attribute including:
+
+- ``product`` - Gene product/function
+- ``source`` - Annotation source (augustus, genemark, etc.)
+- ``name`` - Gene name
+- ``note`` - Gene notes/comments
+- ``contig`` - Chromosome/contig name
+- ``strand`` - DNA strand (+ or -)
+- ``type`` - Feature type
+- ``db_xref`` - Database cross-references
+- ``go_terms`` - Gene Ontology terms
+
 Format Conversion
 ---------------
 
@@ -93,7 +155,7 @@ You can convert a GFF3 file to GTF format using the command line:
 
 .. code-block:: bash
 
-    gfftk convert -i input.gff3 -f gtf -g genome.fasta -o output.gtf
+    gfftk convert -i input.gff3 -f genome.fasta -o output.gtf
 
 Or using the Python API:
 
@@ -103,6 +165,18 @@ Or using the Python API:
 
     # Convert GFF3 to GTF
     gfftk.convert.gff2gtf("input.gff3", "genome.fasta", "output.gtf")
+
+**Converting with Filtering:**
+
+You can combine format conversion with filtering:
+
+.. code-block:: bash
+
+    # Convert only kinase genes to GTF
+    gfftk convert -i input.gff3 -f genome.fasta -o kinases.gtf --grep product:kinase
+
+    # Convert to GTF excluding augustus predictions
+    gfftk convert -i input.gff3 -f genome.fasta -o filtered.gtf --grepv source:augustus
 
 Converting GFF3 to BED
 ~~~~~~~~~~~~~~~~~~~~~
@@ -147,7 +221,7 @@ You can extract protein sequences from a GFF3 file using the command line:
 
 .. code-block:: bash
 
-    gfftk convert -i input.gff3 -f proteins -g genome.fasta -o proteins.fasta
+    gfftk convert -i input.gff3 -f genome.fasta -o proteins.fasta --output-format proteins
 
 Or using the Python API:
 
@@ -158,6 +232,20 @@ Or using the Python API:
     # Extract protein sequences
     gfftk.convert.gff2proteins("input.gff3", "genome.fasta", "proteins.fasta")
 
+**Extracting Filtered Protein Sequences:**
+
+You can extract proteins for specific gene sets:
+
+.. code-block:: bash
+
+    # Extract only kinase proteins
+    gfftk convert -i input.gff3 -f genome.fasta -o kinases.faa \
+        --output-format proteins --grep product:kinase
+
+    # Extract proteins excluding hypothetical proteins
+    gfftk convert -i input.gff3 -f genome.fasta -o known_proteins.faa \
+        --output-format proteins --grepv product:"hypothetical.*protein"
+
 Extracting Transcript Sequences
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -165,7 +253,7 @@ You can extract transcript sequences from a GFF3 file using the command line:
 
 .. code-block:: bash
 
-    gfftk convert -i input.gff3 -f transcripts -g genome.fasta -o transcripts.fasta
+    gfftk convert -i input.gff3 -f genome.fasta -o transcripts.fasta --output-format transcripts
 
 Or using the Python API:
 
@@ -175,6 +263,20 @@ Or using the Python API:
 
     # Extract transcript sequences
     gfftk.convert.gff2transcripts("input.gff3", "genome.fasta", "transcripts.fasta")
+
+**Extracting Filtered Transcript Sequences:**
+
+You can extract transcripts for specific gene sets:
+
+.. code-block:: bash
+
+    # Extract transcripts from specific chromosome
+    gfftk convert -i input.gff3 -f genome.fasta -o chr1_transcripts.fasta \
+        --output-format transcripts --grep contig:chr1
+
+    # Extract transcripts from high-confidence predictions
+    gfftk convert -i input.gff3 -f genome.fasta -o confident_transcripts.fasta \
+        --output-format transcripts --grepv source:augustus
 
 Consensus Gene Models
 -------------------

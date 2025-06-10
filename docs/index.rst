@@ -12,6 +12,7 @@ Welcome to GFFtk's documentation!
    install
    usage
    tutorial
+   filtering
    modules
    API
 

@@ -1,5 +1,6 @@
 import errno
 import os
+import re
 
 
 def readBlocks(source, pattern):
@@ -203,3 +204,163 @@ def zopen(filename, mode="r", buff=1024 * 1024, external=PARALLEL):
     else:
         return open(filename, mode, buff)
     return None
+
+
+def filter_annotations(annotations, grep=None, grepv=None):
+    """Filter annotations based on grep and grepv patterns.
+
+    Parameters
+    ----------
+    annotations : dict
+        GFFtk annotation dictionary keyed by gene ID
+    grep : list, optional
+        List of patterns to keep (format: "key:pattern" or "key:pattern:flags")
+    grepv : list, optional
+        List of patterns to remove (format: "key:pattern" or "key:pattern:flags")
+
+    Returns
+    -------
+    dict
+        Filtered annotation dictionary
+
+    Examples
+    --------
+    # Keep only genes with "kinase" in product
+    filtered = filter_annotations(genes, grep=["product:kinase"])
+
+    # Remove genes from specific source
+    filtered = filter_annotations(genes, grepv=["source:augustus"])
+
+    # Case-insensitive matching
+    filtered = filter_annotations(genes, grep=["product:kinase:i"])
+    """
+    if not grep and not grepv:
+        return annotations
+
+    if grep is None:
+        grep = []
+    if grepv is None:
+        grepv = []
+
+    # Parse grep patterns
+    grep_patterns = []
+    for pattern in grep:
+        grep_patterns.append(_parse_filter_pattern(pattern))
+
+    # Parse grepv patterns
+    grepv_patterns = []
+    for pattern in grepv:
+        grepv_patterns.append(_parse_filter_pattern(pattern))
+
+    filtered_annotations = {}
+
+    for gene_id, gene_data in annotations.items():
+        # Check if gene should be kept based on grep patterns
+        keep_gene = True
+
+        # If grep patterns exist, gene must match at least one
+        if grep_patterns:
+            keep_gene = False
+            for key, pattern, flags in grep_patterns:
+                if _match_gene_pattern(gene_data, key, pattern, flags):
+                    keep_gene = True
+                    break
+
+        # If gene passes grep filter, check grepv patterns
+        if keep_gene and grepv_patterns:
+            for key, pattern, flags in grepv_patterns:
+                if _match_gene_pattern(gene_data, key, pattern, flags):
+                    keep_gene = False
+                    break
+
+        if keep_gene:
+            filtered_annotations[gene_id] = gene_data
+
+    return filtered_annotations
+
+
+def _parse_filter_pattern(pattern_str):
+    """Parse a filter pattern string into components.
+
+    Parameters
+    ----------
+    pattern_str : str
+        Pattern in format "key:pattern" or "key:pattern:flags"
+
+    Returns
+    -------
+    tuple
+        (key, pattern, flags) where flags is a string of regex flags
+    """
+    parts = pattern_str.split(":", 2)
+    if len(parts) < 2:
+        raise ValueError(
+            f"Invalid filter pattern: {pattern_str}. Expected format: 'key:pattern' or 'key:pattern:flags'"
+        )
+
+    key = parts[0]
+    pattern = parts[1]
+    flags = parts[2] if len(parts) > 2 else ""
+
+    return key, pattern, flags
+
+
+def _match_gene_pattern(gene_data, key, pattern, flags):
+    """Check if a gene matches a specific pattern.
+
+    Parameters
+    ----------
+    gene_data : dict
+        Gene annotation data
+    key : str
+        Key to search in (e.g., 'product', 'source', 'note')
+    pattern : str
+        Regular expression pattern to match
+    flags : str
+        Regex flags (i=ignore case, m=multiline, etc.)
+
+    Returns
+    -------
+    bool
+        True if pattern matches, False otherwise
+    """
+    # Convert flags string to re flags
+    re_flags = 0
+    if "i" in flags.lower():
+        re_flags |= re.IGNORECASE
+    if "m" in flags.lower():
+        re_flags |= re.MULTILINE
+    if "s" in flags.lower():
+        re_flags |= re.DOTALL
+
+    # Get the value(s) to search
+    if key not in gene_data:
+        return False
+
+    value = gene_data[key]
+
+    # Handle different value types
+    search_strings = []
+    if isinstance(value, str):
+        search_strings = [value]
+    elif isinstance(value, list):
+        # Flatten nested lists and convert to strings
+        for item in value:
+            if isinstance(item, list):
+                search_strings.extend([str(x) for x in item if x])
+            else:
+                if item:  # Skip empty/None values
+                    search_strings.append(str(item))
+    else:
+        search_strings = [str(value)]
+
+    # Check if pattern matches any of the search strings
+    try:
+        compiled_pattern = re.compile(pattern, re_flags)
+        for search_str in search_strings:
+            if compiled_pattern.search(search_str):
+                return True
+    except re.error as e:
+        raise ValueError(f"Invalid regex pattern '{pattern}': {e}")
+
+    return False

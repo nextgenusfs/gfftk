@@ -303,10 +303,18 @@ def tbl2gff3(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
         codon table [1]
     output : str, default=sys.stdout
         annotation file in GFF3 format
+    grep : list, default=[]
+        Filter gene models, keep matches. [key:value]
+    grepv : list, default=[]
+        Filter gene models, remove matches [key:value]
 
     """
+    from .utils import filter_annotations
+
     # load into dictionary
     Genes, parse_errors = tbl2dict(tbl, fasta, table=table)
+    # apply filtering
+    Genes = filter_annotations(Genes, grep=grep, grepv=grepv)
     # write to GenBank format
     dict2gff3(Genes, output=output)
 
@@ -368,10 +376,18 @@ def tbl2gtf(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
         codon table [1]
     output : str, default=sys.stdout
         annotation file in GTF format
+    grep : list, default=[]
+        Filter gene models, keep matches. [key:value]
+    grepv : list, default=[]
+        Filter gene models, remove matches [key:value]
 
     """
+    from .utils import filter_annotations
+
     # load annotation
     Genes, parse_errors = tbl2dict(tbl, fasta, table=table)
+    # apply filtering
+    Genes = filter_annotations(Genes, grep=grep, grepv=grepv)
     # write to GTF format
     dict2gtf(Genes, output=output)
 
@@ -450,10 +466,18 @@ def gff2transcripts(gff, fasta, output=False, table=1, debug=False, grep=[], gre
         print debug information to stderr
     output : str, default=sys.stdout
         translated amino acids (proteins) in FASTA format
+    grep : list, default=[]
+        Filter gene models, keep matches. [key:value]
+    grepv : list, default=[]
+        Filter gene models, remove matches [key:value]
 
     """
+    from .utils import filter_annotations
+
     # load gff into dictionary
     Genes = gff2dict(gff, fasta, table=table, debug=debug)
+    # apply filtering
+    Genes = filter_annotations(Genes, grep=grep, grepv=grepv)
     # write to protein fasta
     _dict2transcripts(Genes, output=output)
 
@@ -476,10 +500,18 @@ def gff2cdstranscripts(gff, fasta, output=False, table=1, debug=False, grep=[], 
         print debug information to stderr
     output : str, default=sys.stdout
         translated amino acids (proteins) in FASTA format
+    grep : list, default=[]
+        Filter gene models, keep matches. [key:value]
+    grepv : list, default=[]
+        Filter gene models, remove matches [key:value]
 
     """
+    from .utils import filter_annotations
+
     # load gff into dictionary
     Genes = gff2dict(gff, fasta, table=table, debug=debug)
+    # apply filtering
+    Genes = filter_annotations(Genes, grep=grep, grepv=grepv)
     # write to protein fasta
     _dict2cdstranscripts(Genes, output=output)
 
@@ -550,10 +582,18 @@ def gff2gtf(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
         print debug information to stderr
     output : str, default=sys.stdout
         annotation file in GTF format
+    grep : list, default=[]
+        Filter gene models, keep matches. [key:value]
+    grepv : list, default=[]
+        Filter gene models, remove matches [key:value]
 
     """
+    from .utils import filter_annotations
+
     # load annotation
     Genes = gff2dict(gff, fasta, table=table, debug=debug)
+    # apply filtering
+    Genes = filter_annotations(Genes, grep=grep, grepv=grepv)
     # write to GTF format
     dict2gtf(Genes, output=output)
 
