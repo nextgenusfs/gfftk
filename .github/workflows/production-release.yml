@@ -155,7 +155,8 @@ jobs:
         echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ needs.validate-tag.outputs.tag }}" >> release_notes.md
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      id: create_release
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ needs.validate-tag.outputs.tag }}
         name: Release ${{ needs.validate-tag.outputs.tag }}
@@ -163,3 +164,27 @@ jobs:
         files: dist/*
         prerelease: ${{ github.event.inputs.prerelease == 'true' }}
         generate_release_notes: false
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Fallback - Create Release with GitHub CLI
+      if: steps.create_release.outcome == 'failure'
+      run: |
+        echo "Action failed, trying with GitHub CLI..."
+
+        # Create release
+        if [ "${{ github.event.inputs.prerelease }}" == "true" ]; then
+          PRERELEASE_FLAG="--prerelease"
+        else
+          PRERELEASE_FLAG=""
+        fi
+
+        gh release create "${{ needs.validate-tag.outputs.tag }}" \
+          --title "Release ${{ needs.validate-tag.outputs.tag }}" \
+          --notes-file release_notes.md \
+          $PRERELEASE_FLAG \
+          dist/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
