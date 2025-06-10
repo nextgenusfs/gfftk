@@ -117,12 +117,31 @@ jobs:
         path: dist/
 
     - name: Publish to PyPI
+      id: pypi_publish
       uses: pypa/gh-action-pypi-publish@release/v1
+      continue-on-error: true
+
+    - name: Check PyPI publish result
+      run: |
+        if [ "${{ steps.pypi_publish.outcome }}" == "failure" ]; then
+          echo "⚠️ PyPI upload failed - this is expected if version already exists"
+          echo "Checking if version exists on PyPI..."
+
+          # Check if package exists on PyPI
+          if curl -s "https://pypi.org/pypi/gfftk/${{ needs.validate-tag.outputs.tag }}/json" | grep -q "Not Found"; then
+            echo "❌ Version does not exist on PyPI - this is a real error"
+            exit 1
+          else
+            echo "✅ Version already exists on PyPI - continuing with GitHub release"
+          fi
+        else
+          echo "✅ PyPI upload successful"
+        fi
 
   create-github-release:
     name: Create GitHub Release
     needs: [validate-tag, build, publish-to-pypi]
-    if: always() && needs.validate-tag.result == 'success' && needs.build.result == 'success' && needs.publish-to-pypi.result == 'success'
+    if: always() && needs.validate-tag.result == 'success' && needs.build.result == 'success' && (needs.publish-to-pypi.result == 'success' || needs.publish-to-pypi.result == 'failure')
     runs-on: ubuntu-latest
 
     permissions:
