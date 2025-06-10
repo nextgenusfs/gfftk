@@ -83,9 +83,14 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         repository-url: https://test.pypi.org/legacy/
+        verbose: true
+        print-hash: true
 
     - name: Test TestPyPI installation
       run: |
-        sleep 60  # Wait for package to be available
+        echo "Waiting for package to be available on TestPyPI..."
+        sleep 120  # Wait longer for package to be available
+        echo "Attempting to install from TestPyPI..."
         python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ gfftk
+        echo "Testing installation..."
         gfftk --help

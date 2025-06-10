@@ -24,22 +24,25 @@ def convert(args):
             sys.stderr.write("Error: unable to determine -i,--input format: {}".format(args.input))
             raise SystemExit(1)
     if not args.output_format:  # guess again
-        if args.out.endswith((".tbl", ".tbl.gz")):
+        if args.out and args.out.endswith((".tbl", ".tbl.gz")):
             args.output_format = "tbl"
-        elif args.out.endswith((".gff", ".gff3", ".gff.gz", ".gff3.gz")):
+        elif args.out and args.out.endswith((".gff", ".gff3", ".gff.gz", ".gff3.gz")):
             args.output_format = "gff3"
-        elif args.out.endswith((".gtf")):
+        elif args.out and args.out.endswith((".gtf")):
             args.output_format = "gtf"
-        elif args.out.endswith((".gbk", ".gb", ".gbf", ".gbff", ".gbk")):
+        elif args.out and args.out.endswith((".gbk", ".gb", ".gbf", ".gbff", ".gbk")):
             args.output_format = "gbff"
             if not which2("table2asn"):
                 sys.stderr.write(
                     "ERROR: table2asn is not in PATH and is required to generate genbank output"
                 )
                 raise SystemExit(1)
-        else:
+        elif args.out:
             sys.stderr.write("Error: unable to determine -o,--output format: {}".format(args.out))
             raise SystemExit(1)
+        else:
+            # No output file specified, default to stdout with gff3 format
+            args.output_format = "gff3"
     # okay now we can load and convert
     if args.input_format == "tbl":
         if args.output_format == "gff3":
@@ -97,7 +100,17 @@ def convert(args):
                 grepv=args.grepv,
             )
     elif args.input_format == "gff3":
-        if args.output_format == "tbl":
+        if args.output_format == "gff3":
+            gff2gff3(
+                args.input,
+                args.fasta,
+                output=args.out,
+                table=args.table,
+                debug=args.debug,
+                grep=args.grep,
+                grepv=args.grepv,
+            )
+        elif args.output_format == "tbl":
             gff2tbl(
                 args.input,
                 args.fasta,
@@ -562,6 +575,40 @@ def tbl2cdstranscripts(tbl, fasta, output=False, table=1, grep=[], grepv=[]):
     Genes, parse_errors = tbl2dict(tbl, fasta, table=table)
     # write to protein fasta
     _dict2cdstranscripts(Genes, output=output)
+
+
+def gff2gff3(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
+    """Convert GFF3 format to GFF3 format with filtering.
+
+    Will parse GFF3 format into GFFtk annotation dictionary, apply filtering, and then write to GFF3 output.
+    This is useful for filtering GFF3 files. Default is to write to stdout.
+
+    Parameters
+    ----------
+    gff : filename
+        genome annotation text file in GFF3 format
+    fasta : filename
+        genome sequence in FASTA format
+    table : int, default=1
+        codon table [1]
+    debug : bool, default=False
+        print debug information to stderr
+    output : str, default=sys.stdout
+        annotation file in GFF3 format
+    grep : list, default=[]
+        Filter gene models, keep matches. [key:value]
+    grepv : list, default=[]
+        Filter gene models, remove matches [key:value]
+
+    """
+    from .utils import filter_annotations
+
+    # load annotation
+    Genes = gff2dict(gff, fasta, table=table, debug=debug)
+    # apply filtering
+    Genes = filter_annotations(Genes, grep=grep, grepv=grepv)
+    # write to GFF3 format
+    dict2gff3(Genes, output=output)
 
 
 def gff2gtf(gff, fasta, output=False, table=1, debug=False, grep=[], grepv=[]):
