@@ -37,7 +37,7 @@ def readBlocks2(source, startpattern, endpattern):
 
 def check_inputs(inputs):
     for filename in inputs:
-        if not is_file(filename):
+        if filename is not None and not is_file(filename):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), filename)
 
 
