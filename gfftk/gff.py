@@ -2137,7 +2137,7 @@ def _longest_orf(annot, fadict, minlen=50, table=1):
                             CDS.append((start_pos, f))
                             cov += f - start_pos + 1
                     elif len(CDS) > 0:
-                        if cov <= lenOrf:
+                        if cov < lenOrf:
                             remainder = lenOrf - cov
                             if (f - s) < remainder:
                                 CDS.append((s, f))
@@ -2155,13 +2155,21 @@ def _longest_orf(annot, fadict, minlen=50, table=1):
                         v["CDS"] = [sorted(CDS, key=lambda tup: tup[0])]
                     else:
                         v["CDS"] = [sorted(CDS, key=lambda tup: tup[0], reverse=True)]
-                    v["phase"] = ["?"]
+                    v["phase"] = [["?"] * len(CDS)]
+                    v["partialStart"] = [False]
+                    v["partialStop"] = [False]
                     Clean[k] = v
                 except AssertionError:
+                    v["partialStart"] = [False]
+                    v["partialStop"] = [False]
                     Clean[k] = v
             else:
+                v["partialStart"] = [False]
+                v["partialStop"] = [False]
                 Clean[k] = v
         else:  # did not find orfs so add as is
+            v["partialStart"] = [False]
+            v["partialStop"] = [False]
             Clean[k] = v
     return Clean
 
