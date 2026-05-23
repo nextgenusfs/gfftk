@@ -82,6 +82,14 @@ class TestUtils:
             except FileNotFoundError:
                 # This is the expected behavior
                 pass
+
+            # The function should ignore None values
+            try:
+                check_inputs([temp1_name, None, temp2_name])
+            except TypeError:
+                assert False, "check_inputs should handle None values gracefully"
+            except FileNotFoundError:
+                assert False, "check_inputs should not raise FileNotFoundError for None"
         finally:
             # Clean up
             os.unlink(temp1_name)
