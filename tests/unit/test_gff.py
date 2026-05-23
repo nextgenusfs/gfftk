@@ -72,6 +72,8 @@ class TestGFFParsing:
         assert result == []
 
 
+
+
 class TestCombinedGFFFormat:
     """Tests for combined GFF3+FASTA format functionality."""
 
@@ -349,3 +351,106 @@ class TestNonStandardFeatures:
         finally:
             os.unlink(gff_name)
             os.unlink(fasta_name)
+
+    def test_longest_orf_gapmm2_alignment(self):
+        """Test _longest_orf properly handles partialStart/Stop and exact boundary conditions."""
+        # Create a fasta file
+        fd, fasta_file = tempfile.mkstemp(suffix=".fasta")
+        os.close(fd)
+
+        # Create a mock gapmm2 alignment gff3 file
+        fd2, gff_file = tempfile.mkstemp(suffix=".gff3")
+        os.close(fd2)
+
+        try:
+            # We want an exact matching coverage length
+            # The bug was cov <= lenOrf triggering a zero/negative length CDS
+            # mrna_seq = 102 bases, which covers exactly exon 1 (51) and exon 2 (51)
+            # The third exon should not be included in the CDS.
+            mrna_seq = "ATG" + "A" * 96 + "TAG"
+            seq = ["N"] * 200
+            seq[9:60] = list(mrna_seq[0:51])
+            seq[69:120] = list(mrna_seq[51:102])
+            seq[129:186] = ["A"] * 57
+            fasta_str = "".join(seq)
+
+            with open(fasta_file, "w") as f:
+                f.write(">chr1\n")
+                f.write(fasta_str + "\n")
+
+            with open(gff_file, "w") as f:
+                # 3 exons: (10, 60), (70, 120), (130, 186)
+                f.write("chr1\tgapmm2\tcDNA_match\t10\t60\t100\t+\t.\tID=gapmm2_4;Target=transcript1 1 51 +\n")
+                f.write("chr1\tgapmm2\tcDNA_match\t70\t120\t100\t+\t.\tID=gapmm2_4;Target=transcript1 52 102 +\n")
+                f.write("chr1\tgapmm2\tcDNA_match\t130\t186\t100\t+\t.\tID=gapmm2_4;Target=transcript1 103 159 +\n")
+
+            # Use gff_format="alignment" which triggers the _longest_orf function
+            parsed_dict = gff2dict(gff_file, fasta_file, gff_format="alignment", debug=False)
+
+            assert "gapmm2_4" in parsed_dict
+            gene_data = parsed_dict["gapmm2_4"]
+
+            # Since longestORF length is 102, which is NOT > minlen*3 (150)
+            # It will fall to the else block. Let's make sure it handles it without crashing.
+            # partialStart and partialStop should be properly initialized
+            assert gene_data["partialStart"] in ([False], [None])
+            assert gene_data["partialStop"] in ([False], [None])
+
+        finally:
+            if os.path.exists(fasta_file):
+                os.remove(fasta_file)
+            if os.path.exists(gff_file):
+                os.remove(gff_file)
+
+    def test_longest_orf_exact_boundary(self):
+        """Test _longest_orf correctly processes an ORF that exactly ends on an exon boundary."""
+        # Create a fasta file
+        fd, fasta_file = tempfile.mkstemp(suffix=".fasta")
+        os.close(fd)
+
+        # Create a mock gapmm2 alignment gff3 file
+        fd2, gff_file = tempfile.mkstemp(suffix=".gff3")
+        os.close(fd2)
+
+        try:
+            # mrna_seq = 156 bases (52 codons) -> > 150 (minlen 50)
+            # 156 bases exactly covers exon 1 (51), exon 2 (51), exon 3 (54)
+            # wait, let's make it cover exon 1 (51) and exon 2 (105) = 156.
+            # Then an extra exon 3.
+            mrna_seq = "ATG" + "A" * 150 + "TAG"
+            seq = ["N"] * 400
+            seq[9:60] = list(mrna_seq[0:51])
+            seq[69:174] = list(mrna_seq[51:156])
+            seq[199:250] = ["A"] * 51
+            fasta_str = "".join(seq)
+
+            with open(fasta_file, "w") as f:
+                f.write(">chr1\n")
+                f.write(fasta_str + "\n")
+
+            with open(gff_file, "w") as f:
+                f.write("chr1\tgapmm2\tcDNA_match\t10\t60\t100\t+\t.\tID=gapmm2_long;Target=transcript1 1 51 +\n")
+                f.write("chr1\tgapmm2\tcDNA_match\t70\t174\t100\t+\t.\tID=gapmm2_long;Target=transcript1 52 156 +\n")
+                f.write("chr1\tgapmm2\tcDNA_match\t200\t250\t100\t+\t.\tID=gapmm2_long;Target=transcript1 157 207 +\n")
+
+            parsed_dict = gff2dict(gff_file, fasta_file, gff_format="alignment", debug=False)
+
+            assert "gapmm2_long" in parsed_dict
+            gene_data = parsed_dict["gapmm2_long"]
+
+            # Since longestORF length is 156, it will successfully find the ORF.
+            # partialStart and partialStop should be properly initialized.
+            assert len(gene_data["partialStart"]) == 1
+            assert len(gene_data["partialStop"]) == 1
+
+            # Ensure the CDS has only 2 elements, not 3 (where the third is reversed)
+            assert len(gene_data["CDS"][0]) == 2
+            assert gene_data["CDS"][0] == [(10, 60), (70, 174)]
+
+        finally:
+            if os.path.exists(fasta_file):
+                os.remove(fasta_file)
+            if os.path.exists(gff_file):
+                os.remove(gff_file)
+
+

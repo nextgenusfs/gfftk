@@ -2155,7 +2155,7 @@ def _longest_orf(annot, fadict, minlen=50, table=1):
                         v["CDS"] = [sorted(CDS, key=lambda tup: tup[0])]
                     else:
                         v["CDS"] = [sorted(CDS, key=lambda tup: tup[0], reverse=True)]
-                    v["phase"] = ["?"]
+                    v["phase"] = [["?"] * len(CDS)]
                     v["partialStart"] = [False]
                     v["partialStop"] = [False]
                     Clean[k] = v
