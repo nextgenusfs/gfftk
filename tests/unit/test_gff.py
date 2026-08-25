@@ -7,6 +7,7 @@ import tempfile
 
 from gfftk.gff import (
     _detect_format,
+    dict2gff3,
     gff2dict,
     is_combined_gff_fasta,
     simplifyGO,
@@ -18,6 +19,42 @@ from gfftk.gff import (
 
 class TestGFFParsing:
     """Tests for GFF parsing functions."""
+
+    def test_dict2gff3_assigns_unique_cds_ids(self):
+        """Each CDS segment emitted for a transcript must receive its own ID."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as gff_temp:
+            gff_temp.write("##gff-version 3\n")
+            gff_temp.write("contig1\ttest\tgene\t1\t12\t.\t+\t.\tID=gene1\n")
+            gff_temp.write(
+                "contig1\ttest\tmRNA\t1\t12\t.\t+\t.\tID=mRNA1;Parent=gene1\n"
+            )
+            gff_temp.write("contig1\ttest\texon\t1\t3\t.\t+\t.\tID=exon1;Parent=mRNA1\n")
+            gff_temp.write("contig1\ttest\texon\t7\t12\t.\t+\t.\tID=exon2;Parent=mRNA1\n")
+            gff_temp.write("contig1\ttest\tCDS\t1\t3\t.\t+\t0\tID=cds1;Parent=mRNA1\n")
+            gff_temp.write("contig1\ttest\tCDS\t7\t12\t.\t+\t0\tID=cds2;Parent=mRNA1\n")
+            gff_name = gff_temp.name
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as fasta_temp:
+            fasta_temp.write(">contig1\nATGAAATTTTAA\n")
+            fasta_name = fasta_temp.name
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as output_temp:
+            output_name = output_temp.name
+
+        try:
+            annotations = gff2dict(gff_name, fasta_name, debug=False)
+            dict2gff3(annotations, output=output_name)
+            with open(output_name) as gff_output:
+                cds_ids = [
+                    line.split("ID=", 1)[1].split(";", 1)[0]
+                    for line in gff_output
+                    if "\tCDS\t" in line
+                ]
+            assert cds_ids == ["mRNA1.cds1", "mRNA1.cds2"]
+        finally:
+            os.unlink(gff_name)
+            os.unlink(fasta_name)
+            os.unlink(output_name)
 
     def test_detect_format(self):
         """Test the _detect_format function."""
@@ -402,6 +439,7 @@ class TestNonStandardFeatures:
             if os.path.exists(gff_file):
                 os.remove(gff_file)
 
+
     def test_longest_orf_exact_boundary(self):
         """Test _longest_orf correctly processes an ORF that exactly ends on an exon boundary."""
         # Create a fasta file
@@ -452,5 +490,3 @@ class TestNonStandardFeatures:
                 os.remove(fasta_file)
             if os.path.exists(gff_file):
                 os.remove(gff_file)
-
-

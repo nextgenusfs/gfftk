@@ -3414,8 +3414,9 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False, ur
                 # GFF3 phase is 1 less than flat file
                 current_phase = v["codon_start"][i] - 1
                 for y in range(0, num_cds):
+                    cds_num = y + 1
                     gffout.write(
-                        "{:}\t{:}\tCDS\t{:}\t{:}\t.\t{:}\t{:}\tID={:}.cds;Parent={:};\n".format(
+                        "{:}\t{:}\tCDS\t{:}\t{:}\t.\t{:}\t{:}\tID={:}.cds{:};Parent={:};\n".format(
                             v["contig"],
                             new_source,
                             sortedCDS[y][0],
@@ -3423,6 +3424,7 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False, ur
                             v["strand"],
                             current_phase,
                             v["ids"][i],
+                            cds_num,
                             v["ids"][i],
                         )
                     )
