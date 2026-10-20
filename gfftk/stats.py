@@ -145,7 +145,7 @@ def annotation_stats(Genes):
                     elif len(v["3UTR"][i]) > 0:
                         stats["transcript-level"]["CDS_three_utr"] += 1
                     elif len(v["5UTR"][i]) > 0:
-                        stats["transcript-level"]["CDS_three_utr"] += 1
+                        stats["transcript-level"]["CDS_five_utr"] += 1
                     else:
                         stats["transcript-level"]["CDS_no_utr"] += 1
                     if v["go_terms"][i]:
@@ -154,7 +154,7 @@ def annotation_stats(Genes):
                         stats["transcript-level"]["functional"]["pfam"] += 1
                     if any(s.startswith("InterPro:") for s in v["db_xref"][i]):
                         stats["transcript-level"]["functional"]["interproscan"] += 1
-                    if any(s.startswith("EggNog:") for s in v["note"][i]):
+                    if any(s.startswith(("EggNog:", "eggNOG:", "ENOG")) for s in v["note"][i]):
                         stats["transcript-level"]["functional"]["eggnog"] += 1
                     if any(s.startswith("CAZy:") for s in v["note"][i]):
                         stats["transcript-level"]["functional"]["cazyme"] += 1
@@ -162,7 +162,7 @@ def annotation_stats(Genes):
                         stats["transcript-level"]["functional"]["merops"] += 1
                     if any(s.startswith("BUSCO:") for s in v["note"][i]):
                         stats["transcript-level"]["functional"]["busco"] += 1
-                    if any(s.startswith("SECRETED:") for s in v["note"][i]):
+                    if any(s.startswith(("SECRETED:", "SignalP:")) for s in v["note"][i]):
                         stats["transcript-level"]["functional"]["secretion"] += 1
 
         stats["avg_gene_length"] = round(sum(geneLengths) / float(len(geneLengths)), 2)

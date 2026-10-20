@@ -3298,9 +3298,11 @@ def dict2gff3(infile, output=False, debug=False, source=False, newline=False, ur
                         base, values = x.split(":", 1)
                         if "," not in values:
                             CleanedNote.append(base + ":" + values)
-                        else:
+                        elif " " not in values:
                             for y in values.split(","):
                                 CleanedNote.append(base + ":" + y)
+                        else:
+                            CleanedNote.append(base + ":" + values.replace(",", ""))
                     else:
                         CleanedNote.append(x.replace(",", ""))
                 extraAnnotations = extraAnnotations + "Note={:};".format(",".join(CleanedNote))

@@ -837,9 +837,11 @@ def dict2gbff(annots, seqs, outfile, organism=None, circular=False, lowercase=Fa
                         base, values = x.split(":", 1)
                         if "," not in values:
                             CleanedNote.append(base + ":" + values)
-                        else:
+                        elif " " not in values:
                             for y in values.split(","):
                                 CleanedNote.append(base + ":" + y)
+                        else:
+                            CleanedNote.append(base + ":" + values.replace(",", ""))
                     else:
                         CleanedNote.append(x.replace(",", ""))
                 # now check for GO ontology
